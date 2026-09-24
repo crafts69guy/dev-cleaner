@@ -1,0 +1,17 @@
+export function formatBytes(bytes?: number): string {
+  if (bytes === undefined) return "Size unavailable";
+  if (bytes === 0) return "0 B";
+
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const unitIndex = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / 1024 ** unitIndex;
+  return `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
+}
+
+export function formatAge(date?: Date, now = new Date()): string | undefined {
+  if (!date) return undefined;
+  const days = Math.max(0, Math.floor((now.getTime() - date.getTime()) / 86_400_000));
+  if (days === 0) return "today";
+  if (days === 1) return "1 day ago";
+  return `${days} days ago`;
+}
