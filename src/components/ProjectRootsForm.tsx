@@ -1,7 +1,9 @@
-import { Action, ActionPanel, Form, Icon, Toast, showToast, useNavigation } from "@raycast/api";
+import { Action, ActionPanel, Alert, Form, Icon, Toast, confirmAlert, showToast, useNavigation } from "@raycast/api";
+import os from "node:os";
+import path from "node:path";
 import { useState } from "react";
 
-import { writeProjectRoots } from "../storage";
+import { normalizeProjectRoots, writeProjectRoots } from "../storage";
 
 interface ProjectRootsFormProps {
   initialRoots?: string[];
@@ -13,8 +15,21 @@ export function ProjectRootsForm({ initialRoots = [], onSave }: ProjectRootsForm
   const { pop } = useNavigation();
 
   async function submit() {
-    await writeProjectRoots(roots);
-    onSave(roots);
+    const normalizedRoots = await normalizeProjectRoots(roots);
+    if (normalizedRoots.includes(path.parse(os.homedir()).root)) {
+      await showToast({ style: Toast.Style.Failure, title: "A filesystem root cannot be scanned" });
+      return;
+    }
+    if (normalizedRoots.includes(os.homedir())) {
+      const confirmed = await confirmAlert({
+        title: "Scan your entire home directory?",
+        message: "This can be slow and may surface unrelated folders named build, dist, or target.",
+        primaryAction: { title: "Use Home Directory", style: Alert.ActionStyle.Destructive },
+      });
+      if (!confirmed) return;
+    }
+    await writeProjectRoots(normalizedRoots);
+    onSave(normalizedRoots);
     await showToast({ style: Toast.Style.Success, title: "Project roots saved" });
     pop();
   }

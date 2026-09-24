@@ -39,6 +39,7 @@ describe("AI tools provider", () => {
   it("sorts numeric version components", () => {
     expect(compareVersionNames("0.10.0", "0.9.0")).toBeGreaterThan(0);
     expect(compareVersionNames("2.1.3", "2.1.3")).toBe(0);
+    expect(compareVersionNames("alpha", "beta")).toBeLessThan(0);
   });
 
   it("protects the current and previous versions and finds stale temp data", async () => {
@@ -63,6 +64,7 @@ describe("AI tools provider", () => {
     await expect(new AiToolsProvider().scan({ homeDirectory: home, projectRoots: [] })).resolves.toEqual({
       candidates: [],
       issues: [],
+      protectedItems: [],
     });
   });
 
@@ -79,5 +81,21 @@ describe("AI tools provider", () => {
     });
     expect(result.issues).toEqual(expect.arrayContaining([expect.objectContaining({ providerId: "codex" })]));
     expect(result.candidates.some((candidate) => candidate.providerId === "claude")).toBe(true);
+  });
+
+  it("protects the newest release when the current link points to an older version", async () => {
+    const home = await createFixture();
+    const currentLink = path.join(home, ".codex/packages/standalone/current");
+    await rm(currentLink);
+    await symlink(path.join(home, ".codex/packages/standalone/releases/0.10.0-arm64"), currentLink);
+
+    const result = await new AiToolsProvider().scan({ homeDirectory: home, projectRoots: [] });
+
+    expect(result.protectedItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: "0.11.0-arm64", reason: "Newest installed version" }),
+        expect.objectContaining({ title: "0.10.0-arm64", reason: "Current installed version" }),
+      ]),
+    );
   });
 });

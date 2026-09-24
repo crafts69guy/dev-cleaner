@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, utimes } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -114,5 +114,117 @@ describe("cleanup orchestration", () => {
     );
     expect(results.map((result) => result.status)).toEqual(["cleaned", "cleaned"]);
     expect(progress).toEqual(["1/2", "2/2"]);
+  });
+
+  it("refuses a trash item that changed after scanning", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "dev-cleaner-revalidate-"));
+    temporaryDirectories.push(home);
+    const root = path.join(home, "projects");
+    const artifact = path.join(root, "app/build");
+    await mkdir(artifact, { recursive: true });
+    const scannedAt = new Date("2026-01-01T00:00:00Z");
+    await utimes(artifact, scannedAt, scannedAt);
+    const candidate: CleanupCandidate = {
+      id: "changed",
+      providerId: "projects",
+      section: "Project Artifacts",
+      title: "build",
+      subtitle: artifact,
+      description: "test",
+      cleanupPolicy: "trash",
+      risk: "review",
+      selectedByDefault: false,
+      path: artifact,
+      modifiedAt: scannedAt,
+    };
+    await utimes(artifact, new Date("2026-02-01T00:00:00Z"), new Date("2026-02-01T00:00:00Z"));
+
+    await expect(cleanCandidate(candidate, { homeDirectory: home, projectRoots: [root] })).resolves.toMatchObject({
+      status: "failed",
+      message: expect.stringContaining("changed since the scan"),
+    });
+    expect(trash).not.toHaveBeenCalled();
+  });
+
+  it("marks remaining items cancelled without executing them", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const candidate: CleanupCandidate = {
+      id: "cancelled",
+      providerId: "npm",
+      section: "Packages",
+      title: "cancelled",
+      subtitle: "cancelled",
+      description: "test",
+      cleanupPolicy: "command",
+      risk: "safe",
+      selectedByDefault: false,
+      command: { executable: "/bin/echo", args: ["should-not-run"] },
+    };
+    await expect(
+      cleanCandidates([candidate], { homeDirectory: os.tmpdir(), projectRoots: [], signal: controller.signal }),
+    ).resolves.toEqual([expect.objectContaining({ candidateId: "cancelled", status: "cancelled" })]);
+  });
+
+  it("accepts each managed cache root and records zero immediate reclaim for Trash", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "dev-cleaner-managed-roots-"));
+    temporaryDirectories.push(home);
+    const cases: Array<{ providerId: CleanupCandidate["providerId"]; relativePath: string }> = [
+      { providerId: "xcode", relativePath: "Library/Developer/Xcode/DerivedData/App" },
+      { providerId: "simulator", relativePath: "Library/Developer/CoreSimulator/Caches" },
+      { providerId: "cocoapods", relativePath: "Library/Caches/CocoaPods" },
+      { providerId: "swiftpm", relativePath: "Library/Caches/org.swift.swiftpm" },
+      { providerId: "npm", relativePath: ".npm/_npx/workspace" },
+      { providerId: "pnpm", relativePath: "Library/pnpm/store/v11" },
+      { providerId: "cargo", relativePath: ".cargo/registry" },
+      { providerId: "gradle", relativePath: ".gradle/caches" },
+      { providerId: "android", relativePath: ".android/cache" },
+      { providerId: "claude", relativePath: ".cache/claude/staging/old" },
+      { providerId: "codex", relativePath: ".codex/.tmp/old" },
+    ];
+    for (const item of cases) {
+      const target = path.join(home, item.relativePath);
+      await mkdir(target, { recursive: true });
+      const result = await cleanCandidate(
+        {
+          id: `${item.providerId}:${item.relativePath}`,
+          providerId: item.providerId,
+          section: "test",
+          title: path.basename(target),
+          subtitle: target,
+          description: "test",
+          cleanupPolicy: "trash",
+          risk: "review",
+          selectedByDefault: false,
+          path: target,
+        },
+        { homeDirectory: home, projectRoots: [] },
+      );
+      expect(result).toMatchObject({ status: "cleaned", bytesReclaimed: 0 });
+    }
+  });
+
+  it("captures command failures and cancellation", async () => {
+    const failed: CleanupCandidate = {
+      id: "failed-command",
+      providerId: "npm",
+      section: "test",
+      title: "failed",
+      subtitle: "failed",
+      description: "test",
+      cleanupPolicy: "command",
+      risk: "safe",
+      selectedByDefault: false,
+      command: { executable: "/bin/sh", args: ["-c", "exit 3"] },
+    };
+    await expect(cleanCandidate(failed, { homeDirectory: os.tmpdir(), projectRoots: [] })).resolves.toMatchObject({
+      status: "failed",
+    });
+
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      cleanCandidate(failed, { homeDirectory: os.tmpdir(), projectRoots: [], signal: controller.signal }),
+    ).resolves.toMatchObject({ status: "cancelled" });
   });
 });

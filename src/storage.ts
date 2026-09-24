@@ -1,25 +1,44 @@
 import { LocalStorage } from "@raycast/api";
+import { realpath } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 
+import { isPathInside } from "./lib/path-safety";
 import type { CleanupCandidate, CleanupResult, CleanupRun } from "./types";
 
 const PROJECT_ROOTS_KEY = "project-roots";
 const CLEANUP_HISTORY_KEY = "cleanup-history";
 const MAX_HISTORY_RUNS = 25;
 
+export async function normalizeProjectRoots(roots: string[]): Promise<string[]> {
+  const canonical = await Promise.all(
+    roots.map(async (root) => {
+      try {
+        return await realpath(root);
+      } catch {
+        return path.resolve(root);
+      }
+    }),
+  );
+  const unique = [...new Set(canonical)].sort((left, right) => left.length - right.length);
+  return unique.filter((root, index) => !unique.slice(0, index).some((parent) => isPathInside(root, parent)));
+}
+
 export async function readProjectRoots(): Promise<string[] | undefined> {
   try {
     const value = await LocalStorage.getItem<string>(PROJECT_ROOTS_KEY);
     if (!value) return undefined;
     const roots: unknown = JSON.parse(value);
-    return Array.isArray(roots) && roots.every((root) => typeof root === "string") ? roots : undefined;
+    return Array.isArray(roots) && roots.every((root) => typeof root === "string")
+      ? await normalizeProjectRoots(roots)
+      : undefined;
   } catch {
     return undefined;
   }
 }
 
 export async function writeProjectRoots(roots: string[]): Promise<void> {
-  await LocalStorage.setItem(PROJECT_ROOTS_KEY, JSON.stringify([...new Set(roots)]));
+  await LocalStorage.setItem(PROJECT_ROOTS_KEY, JSON.stringify(await normalizeProjectRoots(roots)));
 }
 
 export async function readCleanupHistory(): Promise<CleanupRun[]> {

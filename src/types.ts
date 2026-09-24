@@ -12,6 +12,9 @@ export type ProviderId =
   | "android"
   | "homebrew"
   | "xcode"
+  | "simulator"
+  | "cocoapods"
+  | "swiftpm"
   | "docker"
   | "projects";
 
@@ -40,6 +43,14 @@ export interface CleanupCandidate {
   command?: CommandSpec;
 }
 
+export interface ProtectedItem {
+  id: string;
+  providerId: ProviderId;
+  title: string;
+  reason: string;
+  path?: string;
+}
+
 export interface ScanIssue {
   providerId: ProviderId;
   message: string;
@@ -48,6 +59,7 @@ export interface ScanIssue {
 export interface ScanResult {
   candidates: CleanupCandidate[];
   issues: ScanIssue[];
+  protectedItems?: ProtectedItem[];
 }
 
 export interface ScanContext {
@@ -65,8 +77,9 @@ export interface CleanupProvider {
 
 export interface CleanupResult {
   candidateId: string;
-  status: "cleaned" | "failed";
+  status: "cleaned" | "failed" | "cancelled";
   bytes?: number;
+  bytesReclaimed?: number;
   message?: string;
 }
 

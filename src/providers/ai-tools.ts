@@ -2,7 +2,7 @@ import { lstat, opendir, realpath } from "node:fs/promises";
 import path from "node:path";
 
 import { directorySize, isOlderThan, modifiedAt, pathExists } from "../lib/fs";
-import type { CleanupCandidate, CleanupProvider, ProviderId, ScanContext, ScanResult } from "../types";
+import type { CleanupCandidate, CleanupProvider, ProtectedItem, ProviderId, ScanContext, ScanResult } from "../types";
 
 function versionParts(name: string): number[] {
   return (name.match(/\d+/g) ?? []).map(Number);
@@ -27,9 +27,13 @@ interface VersionScannerOptions {
   signal?: AbortSignal;
 }
 
-async function scanVersions(options: VersionScannerOptions): Promise<CleanupCandidate[]> {
+async function scanVersions(
+  options: VersionScannerOptions,
+): Promise<{ candidates: CleanupCandidate[]; protectedItems: ProtectedItem[] }> {
   options.signal?.throwIfAborted();
-  if (!(await pathExists(options.versionsDirectory)) || !(await pathExists(options.currentLink))) return [];
+  if (!(await pathExists(options.versionsDirectory)) || !(await pathExists(options.currentLink))) {
+    return { candidates: [], protectedItems: [] };
+  }
 
   const current = await realpath(options.currentLink);
   const directory = await opendir(options.versionsDirectory);
@@ -44,27 +48,47 @@ async function scanVersions(options: VersionScannerOptions): Promise<CleanupCand
   const currentName = path.basename(current);
   const currentIndex = versions.findIndex((version) => version.name === currentName);
   const protectedPaths = new Set<string>([currentName]);
-  const previous = versions.find((_, index) => index !== currentIndex);
-  if (previous) protectedPaths.add(previous.name);
+  const protectionReasons = new Map<string, string>([[currentName, "Current installed version"]]);
+  const newest = versions[0];
+  if (newest) {
+    protectedPaths.add(newest.name);
+    if (newest.name !== currentName) protectionReasons.set(newest.name, "Newest installed version");
+  }
+  const previous = currentIndex >= 0 ? versions[currentIndex + 1] : versions[0];
+  if (previous) {
+    protectedPaths.add(previous.name);
+    if (!protectionReasons.has(previous.name)) protectionReasons.set(previous.name, "Newest rollback version");
+  }
 
-  return Promise.all(
-    versions
-      .filter((version) => !protectedPaths.has(version.name))
-      .map(async (version) => ({
-        id: `${options.providerId}:version:${version.name}`,
+  return {
+    candidates: await Promise.all(
+      versions
+        .filter((version) => !protectedPaths.has(version.name))
+        .map(async (version) => ({
+          id: `${options.providerId}:version:${version.name}`,
+          providerId: options.providerId,
+          section: options.section,
+          title: `${version.name} (old version)`,
+          subtitle: version.path,
+          description: "The current version and one rollback version are protected.",
+          cleanupPolicy: "trash" as const,
+          risk: "safe" as const,
+          selectedByDefault: true,
+          bytes: await directorySize(version.path, options.signal),
+          modifiedAt: await modifiedAt(version.path),
+          path: version.path,
+        })),
+    ),
+    protectedItems: versions
+      .filter((version) => protectedPaths.has(version.name))
+      .map((version) => ({
+        id: `${options.providerId}:protected:${version.name}`,
         providerId: options.providerId,
-        section: options.section,
-        title: `${version.name} (old version)`,
-        subtitle: version.path,
-        description: "The current version and one rollback version are protected.",
-        cleanupPolicy: "trash" as const,
-        risk: "safe" as const,
-        selectedByDefault: true,
-        bytes: await directorySize(version.path, options.signal),
-        modifiedAt: await modifiedAt(version.path),
+        title: version.name,
+        reason: protectionReasons.get(version.name) ?? "Protected installed version",
         path: version.path,
       })),
-  );
+  };
 }
 
 async function scanStaleChildren(
@@ -109,7 +133,10 @@ export class AiToolsProvider implements CleanupProvider {
     const now = context.now ?? new Date();
     const codexRoot = path.join(context.homeDirectory, ".codex");
     const claudeInstallRoot = path.join(context.homeDirectory, ".local/share/claude");
-    const sources: { providerId: ProviderId; scan: () => Promise<CleanupCandidate[]> }[] = [
+    const sources: {
+      providerId: ProviderId;
+      scan: () => Promise<{ candidates: CleanupCandidate[]; protectedItems: ProtectedItem[] }>;
+    }[] = [
       {
         providerId: "codex",
         scan: () =>
@@ -123,7 +150,10 @@ export class AiToolsProvider implements CleanupProvider {
       },
       {
         providerId: "codex",
-        scan: () => scanStaleChildren("codex", "Codex", path.join(codexRoot, ".tmp"), now, context.signal),
+        scan: async () => ({
+          candidates: await scanStaleChildren("codex", "Codex", path.join(codexRoot, ".tmp"), now, context.signal),
+          protectedItems: [],
+        }),
       },
       {
         providerId: "claude",
@@ -138,20 +168,23 @@ export class AiToolsProvider implements CleanupProvider {
       },
       {
         providerId: "claude",
-        scan: () =>
-          scanStaleChildren(
+        scan: async () => ({
+          candidates: await scanStaleChildren(
             "claude",
             "Claude Code",
             path.join(context.homeDirectory, ".cache/claude/staging"),
             now,
             context.signal,
           ),
+          protectedItems: [],
+        }),
       },
     ];
     const results = await Promise.allSettled(sources.map((source) => source.scan()));
     context.signal?.throwIfAborted();
     return {
-      candidates: results.flatMap((result) => (result.status === "fulfilled" ? result.value : [])),
+      candidates: results.flatMap((result) => (result.status === "fulfilled" ? result.value.candidates : [])),
+      protectedItems: results.flatMap((result) => (result.status === "fulfilled" ? result.value.protectedItems : [])),
       issues: results.flatMap((result, index) =>
         result.status === "rejected"
           ? [{ providerId: sources[index].providerId, message: (result.reason as Error).message }]

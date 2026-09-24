@@ -39,4 +39,18 @@ describe("project artifacts provider", () => {
     expect(result.candidates).toEqual([]);
     expect(result.issues).toHaveLength(1);
   });
+
+  it("deduplicates artifacts discovered through overlapping roots", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "dev-cleaner-project-overlap-"));
+    temporaryDirectories.push(root);
+    const app = path.join(root, "app");
+    await mkdir(path.join(app, "node_modules"), { recursive: true });
+    await writeFile(path.join(app, "node_modules/item"), "cache");
+
+    const result = await new ProjectArtifactsProvider().scan({
+      homeDirectory: root,
+      projectRoots: [root, app],
+    });
+    expect(result.candidates).toHaveLength(1);
+  });
 });

@@ -1,9 +1,18 @@
 # Developer Cleaner Changelog
 
-## [Initial Release] - {PR_MERGE_DATE}
+## [Unreleased]
+
+- Discover the active pnpm store through the native CLI instead of inferring its format from the pnpm major version.
+- Protect Node and Rust runtimes referenced by project pins and rustup overrides.
+- Revalidate cleanup candidates, support cancellation and retry, and report measured reclaimed space.
+- Normalize nested project roots and add risk filters, sorting, cleanup presets, protected-runtime inventory, and JSON reports.
+- Add CoreSimulator, iOS DeviceSupport, CocoaPods, and SwiftPM cache discovery.
+- Add macOS CI and expand safety-critical test coverage.
+
+## [Initial Release] - 2026-09-24
 
 - Review stale Codex and Claude Code installations while protecting current and rollback versions.
 - Clean package-manager caches through their native commands.
 - Find Xcode DerivedData and generated artifacts inside explicitly configured project roots.
 - Review every candidate before cleanup, move file-backed data to Trash, and retain local cleanup history.
-- Find obsolete pnpm stores, fnm Node.js versions, inactive Rust toolchains, Cargo caches, and Gradle/Android caches.
+- Find fnm Node.js versions, non-current Rust toolchains, Cargo caches, and Gradle/Android caches.

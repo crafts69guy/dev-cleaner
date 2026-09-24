@@ -16,6 +16,7 @@ interface NativeDefinition {
   selectedByDefault: boolean;
   sizePath?: (home: string) => string;
   timeoutMs?: number;
+  previewArgs?: string[];
 }
 
 const DEFINITIONS: NativeDefinition[] = [
@@ -74,6 +75,7 @@ const DEFINITIONS: NativeDefinition[] = [
     selectedByDefault: false,
     sizePath: (home) => path.join(home, "Library/Caches/Homebrew"),
     timeoutMs: 300_000,
+    previewArgs: ["cleanup", "--dry-run", "--prune=30"],
   },
   {
     providerId: "docker",
@@ -85,6 +87,7 @@ const DEFINITIONS: NativeDefinition[] = [
     risk: "high",
     selectedByDefault: false,
     timeoutMs: 300_000,
+    previewArgs: ["system", "df"],
   },
   {
     providerId: "docker",
@@ -96,6 +99,7 @@ const DEFINITIONS: NativeDefinition[] = [
     risk: "review",
     selectedByDefault: false,
     timeoutMs: 300_000,
+    previewArgs: ["system", "df"],
   },
 ];
 
@@ -141,6 +145,8 @@ export class NativeToolsProvider implements CleanupProvider {
   async scan(context: ScanContext): Promise<ScanResult> {
     const candidates: CleanupCandidate[] = [];
     const issues: ScanResult["issues"] = [];
+    const executables = new Map<string, string | undefined>();
+    const previews = new Map<string, string>();
 
     try {
       candidates.push(...(await scanNpx(context)));
@@ -151,30 +157,46 @@ export class NativeToolsProvider implements CleanupProvider {
     for (const definition of DEFINITIONS) {
       context.signal?.throwIfAborted();
       try {
-        const executable = await resolveExecutable(definition.executable, context);
+        let executable = executables.get(definition.executable);
+        if (!executables.has(definition.executable)) {
+          executable = await resolveExecutable(definition.executable, context);
+          executables.set(definition.executable, executable);
+        }
         if (!executable) continue;
         let sizePath = definition.sizePath?.(context.homeDirectory);
         if (definition.providerId === "pnpm") {
-          const version = await runCommand({ executable, args: ["--version"], timeoutMs: 10_000 }, context.signal);
-          const major = Number.parseInt(version.stdout.trim().split(".")[0], 10);
-          const activeStore = path.join(context.homeDirectory, "Library/pnpm/store", `v${major}`);
-          sizePath = Number.isFinite(major) && (await pathExists(activeStore)) ? activeStore : undefined;
+          const store = await runCommand(
+            { executable, args: ["store", "path"], timeoutMs: 10_000 },
+            context.signal,
+            context.extraPath,
+          );
+          const activeStore = store.stdout.trim();
+          sizePath = activeStore && (await pathExists(activeStore)) ? activeStore : undefined;
         }
         let preview = "";
-        if (definition.providerId === "homebrew") {
-          try {
-            const result = await runCommand(
-              {
-                executable,
-                args: ["cleanup", "--dry-run", "--prune=30"],
-                timeoutMs: 60_000,
-              },
-              context.signal,
-            );
-            preview = result.stdout.trim() || result.stderr.trim();
-          } catch (error) {
-            issues.push({ providerId: "homebrew", message: `Preview failed: ${(error as Error).message}` });
-          }
+        if (definition.previewArgs) {
+          const previewKey = `${executable}\0${definition.previewArgs.join("\0")}`;
+          const cachedPreview = previews.get(previewKey);
+          if (cachedPreview !== undefined) preview = cachedPreview;
+          else
+            try {
+              const result = await runCommand(
+                {
+                  executable,
+                  args: definition.previewArgs,
+                  timeoutMs: 60_000,
+                },
+                context.signal,
+                context.extraPath,
+              );
+              preview = result.stdout.trim() || result.stderr.trim();
+              previews.set(previewKey, preview);
+            } catch (error) {
+              issues.push({
+                providerId: definition.providerId,
+                message: `Preview failed: ${(error as Error).message}`,
+              });
+            }
         }
         candidates.push({
           id: `${definition.providerId}:command:${definition.args.join(":")}`,

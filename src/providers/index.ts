@@ -1,5 +1,6 @@
 import type { CleanupProvider, ScanContext, ScanResult } from "../types";
 import { AiToolsProvider } from "./ai-tools";
+import { AppleCachesProvider } from "./apple-caches";
 import { NativeToolsProvider } from "./native-tools";
 import { ProjectArtifactsProvider } from "./projects";
 import { RuntimeCachesProvider } from "./runtime-caches";
@@ -7,6 +8,7 @@ import { XcodeProvider } from "./xcode";
 
 export const providers: CleanupProvider[] = [
   new AiToolsProvider(),
+  new AppleCachesProvider(),
   new NativeToolsProvider(),
   new RuntimeCachesProvider(),
   new ProjectArtifactsProvider(),
@@ -14,11 +16,18 @@ export const providers: CleanupProvider[] = [
 ];
 
 function combineResults(results: ScanResult[]): ScanResult {
+  const uniqueCandidates = [
+    ...new Map(results.flatMap((result) => result.candidates).map((candidate) => [candidate.id, candidate])).values(),
+  ];
+  const uniqueProtectedItems = [
+    ...new Map(results.flatMap((result) => result.protectedItems ?? []).map((item) => [item.id, item])).values(),
+  ];
   return {
-    candidates: results
-      .flatMap((result) => result.candidates)
-      .sort((left, right) => left.section.localeCompare(right.section) || (right.bytes ?? -1) - (left.bytes ?? -1)),
+    candidates: uniqueCandidates.sort(
+      (left, right) => left.section.localeCompare(right.section) || (right.bytes ?? -1) - (left.bytes ?? -1),
+    ),
     issues: results.flatMap((result) => result.issues),
+    protectedItems: uniqueProtectedItems,
   };
 }
 

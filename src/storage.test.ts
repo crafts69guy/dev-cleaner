@@ -10,7 +10,13 @@ vi.mock("@raycast/api", () => ({
   },
 }));
 
-import { readCleanupHistory, readProjectRoots, recordCleanupRun, writeProjectRoots } from "./storage";
+import {
+  normalizeProjectRoots,
+  readCleanupHistory,
+  readProjectRoots,
+  recordCleanupRun,
+  writeProjectRoots,
+} from "./storage";
 import type { CleanupCandidate } from "./types";
 
 beforeEach(() => values.clear());
@@ -21,6 +27,12 @@ describe("local storage", () => {
     await expect(readProjectRoots()).resolves.toEqual(["/one", "/two"]);
     values.set("project-roots", "not-json");
     await expect(readProjectRoots()).resolves.toBeUndefined();
+  });
+
+  it("removes nested project roots", async () => {
+    await expect(normalizeProjectRoots(["/projects/app", "/projects", "/projects/app"])).resolves.toEqual([
+      "/projects",
+    ]);
   });
 
   it("records structured cleanup history", async () => {

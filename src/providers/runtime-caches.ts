@@ -4,7 +4,8 @@ import path from "node:path";
 import { mapWithConcurrency } from "../lib/async";
 import { resolveExecutable, runCommand } from "../lib/command";
 import { directorySize, modifiedAt, pathExists } from "../lib/fs";
-import type { CleanupCandidate, CleanupProvider, ProviderId, ScanContext, ScanResult } from "../types";
+import { matchingPinSources, scanRuntimePins, type RuntimePins } from "../lib/runtime-pins";
+import type { CleanupCandidate, CleanupProvider, ProtectedItem, ProviderId, ScanContext, ScanResult } from "../types";
 import { compareVersionNames } from "./ai-tools";
 
 interface TrashCandidateInput {
@@ -40,41 +41,14 @@ async function createTrashCandidate(
   };
 }
 
-async function scanPnpmStores(context: ScanContext): Promise<CleanupCandidate[]> {
-  const executable = await resolveExecutable("pnpm", context);
-  const storeRoot = path.join(context.homeDirectory, "Library/pnpm/store");
-  if (!executable || !(await pathExists(storeRoot))) return [];
-  const { stdout } = await runCommand({ executable, args: ["--version"], timeoutMs: 10_000 }, context.signal);
-  const activeMajor = Number.parseInt(stdout.trim().split(".")[0], 10);
-  if (!Number.isFinite(activeMajor)) throw new Error(`Could not determine pnpm major version from ${stdout.trim()}`);
-
-  const directory = await opendir(storeRoot);
-  const stores: TrashCandidateInput[] = [];
-  for await (const entry of directory) {
-    context.signal?.throwIfAborted();
-    const match = /^v(\d+)$/.exec(entry.name);
-    if (!entry.isDirectory() || !match || Number(match[1]) >= activeMajor) continue;
-    stores.push({
-      providerId: "pnpm",
-      section: "Runtime Versions",
-      title: `pnpm store ${entry.name}`,
-      path: path.join(storeRoot, entry.name),
-      description: `Store format ${entry.name} predates the active pnpm ${activeMajor}. Review projects using older pnpm versions before removal.`,
-      risk: "review",
-    });
-  }
-  const candidates = await mapWithConcurrency(
-    stores,
-    3,
-    (store) => createTrashCandidate(store, context.signal),
-    context.signal,
-  );
-  return candidates.filter((candidate): candidate is CleanupCandidate => candidate !== undefined);
+interface RuntimeScanOutput {
+  candidates: CleanupCandidate[];
+  protectedItems: ProtectedItem[];
 }
 
-async function scanFnmVersions(context: ScanContext): Promise<CleanupCandidate[]> {
+async function scanFnmVersions(context: ScanContext, pins: RuntimePins): Promise<RuntimeScanOutput> {
   const versionsRoot = path.join(context.homeDirectory, ".local/share/fnm/node-versions");
-  if (!(await pathExists(versionsRoot))) return [];
+  if (!(await pathExists(versionsRoot))) return { candidates: [], protectedItems: [] };
   const directory = await opendir(versionsRoot);
   const versions: { name: string; path: string }[] = [];
   for await (const entry of directory) {
@@ -92,9 +66,26 @@ async function scanFnmVersions(context: ScanContext): Promise<CleanupCandidate[]
     currentName = path.basename(path.dirname(target));
   }
   const protectedNames = new Set<string>();
+  const protectionReasons = new Map<string, string>();
   if (currentName) protectedNames.add(currentName);
-  const rollback = versions.find((version) => version.name !== currentName);
-  if (rollback) protectedNames.add(rollback.name);
+  if (currentName) protectionReasons.set(currentName, "Default fnm version");
+  const newest = versions[0];
+  if (newest) {
+    protectedNames.add(newest.name);
+    if (newest.name !== currentName) protectionReasons.set(newest.name, "Newest installed version");
+  }
+  const currentIndex = versions.findIndex((version) => version.name === currentName);
+  const rollback = currentIndex >= 0 ? versions[currentIndex + 1] : versions[0];
+  if (rollback) {
+    protectedNames.add(rollback.name);
+    protectionReasons.set(rollback.name, "Newest rollback version");
+  }
+  for (const version of versions) {
+    const sources = matchingPinSources(pins.node, version.name);
+    if (sources.length === 0) continue;
+    protectedNames.add(version.name);
+    protectionReasons.set(version.name, `Pinned by ${sources.join(", ")}`);
+  }
 
   const candidates = await mapWithConcurrency(
     versions.filter((version) => !protectedNames.has(version.name)),
@@ -114,26 +105,57 @@ async function scanFnmVersions(context: ScanContext): Promise<CleanupCandidate[]
       ),
     context.signal,
   );
-  return candidates.filter((candidate): candidate is CleanupCandidate => candidate !== undefined);
+  return {
+    candidates: candidates.filter((candidate): candidate is CleanupCandidate => candidate !== undefined),
+    protectedItems: versions
+      .filter((version) => protectedNames.has(version.name))
+      .map((version) => ({
+        id: `node:protected:${version.name}`,
+        providerId: "node",
+        title: `Node.js ${version.name}`,
+        reason: protectionReasons.get(version.name) ?? "Protected runtime",
+        path: version.path,
+      })),
+  };
 }
 
-async function scanRustToolchains(context: ScanContext): Promise<CleanupCandidate[]> {
+async function scanRustToolchains(context: ScanContext, pins: RuntimePins): Promise<RuntimeScanOutput> {
   const executable = await resolveExecutable("rustup", context);
-  if (!executable) return [];
-  const [activeResult, listResult] = await Promise.all([
-    runCommand({ executable, args: ["show", "active-toolchain"], timeoutMs: 10_000 }, context.signal),
-    runCommand({ executable, args: ["toolchain", "list"], timeoutMs: 10_000 }, context.signal),
+  if (!executable) return { candidates: [], protectedItems: [] };
+  const [activeResult, listResult, overrideResult] = await Promise.all([
+    runCommand(
+      { executable, args: ["show", "active-toolchain"], timeoutMs: 10_000 },
+      context.signal,
+      context.extraPath,
+    ),
+    runCommand({ executable, args: ["toolchain", "list"], timeoutMs: 10_000 }, context.signal, context.extraPath),
+    runCommand({ executable, args: ["override", "list"], timeoutMs: 10_000 }, context.signal, context.extraPath).catch(
+      () => ({ stdout: "", stderr: "" }),
+    ),
   ]);
   const active = activeResult.stdout.trim().split(/\s+/)[0];
-  const toolchains = listResult.stdout
+  const listedToolchains = listResult.stdout
     .split("\n")
-    .map((line) => line.trim().split(/\s+/)[0])
-    .filter(Boolean);
+    .map((line) => ({ name: line.trim().split(/\s+/)[0], line }))
+    .filter(({ name }) => Boolean(name));
+  const reasons = new Map<string, string>();
+  if (active) reasons.set(active, "Active toolchain in the current context");
+  for (const toolchain of listedToolchains) {
+    if (toolchain.line.includes("default")) reasons.set(toolchain.name, "Default rustup toolchain");
+  }
+  for (const line of overrideResult.stdout.split("\n")) {
+    const match = /^(.*?)\s+(\S+)$/.exec(line.trim());
+    if (match) reasons.set(match[2], `Used by rustup override at ${match[1]}`);
+  }
+  for (const toolchain of listedToolchains) {
+    const sources = matchingPinSources(pins.rust, toolchain.name);
+    if (sources.length > 0) reasons.set(toolchain.name, `Pinned by ${sources.join(", ")}`);
+  }
+  const removable = listedToolchains.filter(({ name }) => !reasons.has(name));
 
-  return Promise.all(
-    toolchains
-      .filter((toolchain) => toolchain !== active)
-      .map(async (toolchain): Promise<CleanupCandidate> => {
+  return {
+    candidates: await Promise.all(
+      removable.map(async ({ name: toolchain }): Promise<CleanupCandidate> => {
         const toolchainPath = path.join(context.homeDirectory, ".rustup/toolchains", toolchain);
         return {
           id: `rustup:toolchain:${toolchain}`,
@@ -141,7 +163,7 @@ async function scanRustToolchains(context: ScanContext): Promise<CleanupCandidat
           section: "Runtime Versions",
           title: `Rust ${toolchain}`,
           subtitle: `${executable} toolchain uninstall ${toolchain}`,
-          description: `Inactive Rust toolchain. The active toolchain ${active || "could not be named"} is protected.`,
+          description: "A non-current Rust toolchain with no detected project pin or rustup override.",
           cleanupPolicy: "command",
           risk: "review",
           selectedByDefault: false,
@@ -150,7 +172,17 @@ async function scanRustToolchains(context: ScanContext): Promise<CleanupCandidat
           command: { executable, args: ["toolchain", "uninstall", toolchain], timeoutMs: 300_000 },
         };
       }),
-  );
+    ),
+    protectedItems: listedToolchains
+      .filter(({ name }) => reasons.has(name))
+      .map(({ name }) => ({
+        id: `rustup:protected:${name}`,
+        providerId: "rustup",
+        title: `Rust ${name}`,
+        reason: reasons.get(name) ?? "Protected runtime",
+        path: path.join(context.homeDirectory, ".rustup/toolchains", name),
+      })),
+  };
 }
 
 async function scanRegenerableCaches(context: ScanContext): Promise<CleanupCandidate[]> {
@@ -219,16 +251,20 @@ export class RuntimeCachesProvider implements CleanupProvider {
   readonly id = "node" as const;
 
   async scan(context: ScanContext): Promise<ScanResult> {
-    const sources: { providerId: ProviderId; scan: () => Promise<CleanupCandidate[]> }[] = [
-      { providerId: "pnpm", scan: () => scanPnpmStores(context) },
-      { providerId: "node", scan: () => scanFnmVersions(context) },
-      { providerId: "rustup", scan: () => scanRustToolchains(context) },
-      { providerId: "cargo", scan: () => scanRegenerableCaches(context) },
+    const pins = await scanRuntimePins(context.projectRoots, context.signal);
+    const sources: { providerId: ProviderId; scan: () => Promise<RuntimeScanOutput> }[] = [
+      { providerId: "node", scan: () => scanFnmVersions(context, pins) },
+      { providerId: "rustup", scan: () => scanRustToolchains(context, pins) },
+      {
+        providerId: "cargo",
+        scan: async () => ({ candidates: await scanRegenerableCaches(context), protectedItems: [] }),
+      },
     ];
     const results = await Promise.allSettled(sources.map((source) => source.scan()));
     context.signal?.throwIfAborted();
     return {
-      candidates: results.flatMap((result) => (result.status === "fulfilled" ? result.value : [])),
+      candidates: results.flatMap((result) => (result.status === "fulfilled" ? result.value.candidates : [])),
+      protectedItems: results.flatMap((result) => (result.status === "fulfilled" ? result.value.protectedItems : [])),
       issues: results.flatMap((result, index) =>
         result.status === "rejected"
           ? [{ providerId: sources[index].providerId, message: (result.reason as Error).message }]

@@ -22,17 +22,10 @@ describe("runtime and build cache provider", () => {
     temporaryDirectories.push(home);
     const bin = path.join(home, "bin");
     await mkdir(bin);
-    await executable(path.join(bin, "pnpm"), 'echo "11.24.0"');
     await executable(
       path.join(bin, "rustup"),
       'if [ "$1" = "show" ]; then echo "stable-aarch64-apple-darwin (default)"; else echo "stable-aarch64-apple-darwin (active, default)"; echo "nightly-aarch64-apple-darwin"; fi',
     );
-
-    for (const version of ["v10", "v11"]) {
-      const store = path.join(home, "Library/pnpm/store", version);
-      await mkdir(store, { recursive: true });
-      await writeFile(path.join(store, "item"), version);
-    }
 
     const versionsRoot = path.join(home, ".local/share/fnm/node-versions");
     for (const version of ["v16.20.0", "v18.20.0", "v22.16.0", "v24.18.0"]) {
@@ -65,11 +58,10 @@ describe("runtime and build cache provider", () => {
 
     const result = await new RuntimeCachesProvider().scan({ homeDirectory: home, projectRoots: [], extraPath: bin });
     expect(result.issues).toEqual([]);
-    expect(result.candidates).toHaveLength(9);
+    expect(result.candidates).toHaveLength(8);
     expect(result.candidates.every((candidate) => !candidate.selectedByDefault)).toBe(true);
     expect(result.candidates.map((candidate) => candidate.title)).toEqual(
       expect.arrayContaining([
-        "pnpm store v10",
         "Node.js v16.20.0",
         "Node.js v18.20.0",
         "Rust nightly-aarch64-apple-darwin",
@@ -90,14 +82,56 @@ describe("runtime and build cache provider", () => {
     temporaryDirectories.push(home);
     const bin = path.join(home, "bin");
     await mkdir(bin);
-    await executable(path.join(bin, "pnpm"), "exit 1");
-    await mkdir(path.join(home, "Library/pnpm/store"), { recursive: true });
     const cargo = path.join(home, ".cargo/registry");
     await mkdir(cargo, { recursive: true });
     await writeFile(path.join(cargo, "item"), "cache");
 
     const result = await new RuntimeCachesProvider().scan({ homeDirectory: home, projectRoots: [], extraPath: bin });
-    expect(result.issues).toEqual(expect.arrayContaining([expect.objectContaining({ providerId: "pnpm" })]));
+    expect(result.issues).toEqual([]);
     expect(result.candidates.some((candidate) => candidate.providerId === "cargo")).toBe(true);
+  });
+
+  it("protects Node versions pinned by configured projects", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "dev-cleaner-runtime-pins-"));
+    temporaryDirectories.push(home);
+    const versionsRoot = path.join(home, ".local/share/fnm/node-versions");
+    for (const version of ["v18.20.0", "v22.16.0", "v24.18.0"]) {
+      const installation = path.join(versionsRoot, version, "installation");
+      await mkdir(installation, { recursive: true });
+      await writeFile(path.join(installation, "node"), version);
+    }
+    await mkdir(path.join(home, ".local/share/fnm/aliases"), { recursive: true });
+    await symlink(
+      path.join(versionsRoot, "v24.18.0/installation"),
+      path.join(home, ".local/share/fnm/aliases/default"),
+    );
+    const project = path.join(home, "project");
+    await mkdir(project);
+    await writeFile(path.join(project, ".node-version"), "18.20.0\n");
+
+    const result = await new RuntimeCachesProvider().scan({ homeDirectory: home, projectRoots: [project] });
+
+    expect(result.candidates.some((candidate) => candidate.title.includes("v18.20.0"))).toBe(false);
+    expect(result.protectedItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: "Node.js v18.20.0", reason: expect.stringContaining("Pinned by") }),
+      ]),
+    );
+  });
+
+  it("continues when rustup has no override list", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "dev-cleaner-rustup-overrides-"));
+    temporaryDirectories.push(home);
+    const bin = path.join(home, "bin");
+    await mkdir(bin);
+    await executable(
+      path.join(bin, "rustup"),
+      'if [ "$1" = "override" ]; then exit 1; elif [ "$1" = "show" ]; then echo "stable-aarch64-apple-darwin (default)"; else echo "stable-aarch64-apple-darwin (active, default)"; fi',
+    );
+    const result = await new RuntimeCachesProvider().scan({ homeDirectory: home, projectRoots: [], extraPath: bin });
+    expect(result.issues).toEqual([]);
+    expect(result.protectedItems).toEqual(
+      expect.arrayContaining([expect.objectContaining({ title: "Rust stable-aarch64-apple-darwin" })]),
+    );
   });
 });

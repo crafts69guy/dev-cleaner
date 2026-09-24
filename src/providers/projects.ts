@@ -69,8 +69,11 @@ export class ProjectArtifactsProvider implements CleanupProvider {
       },
       context.signal,
     );
+    const candidates = [
+      ...new Map(results.flatMap((result) => result.candidates).map((candidate) => [candidate.id, candidate])).values(),
+    ];
     return {
-      candidates: results.flatMap((result) => result.candidates),
+      candidates,
       issues: results.flatMap((result) => (result.issue ? [{ providerId: this.id, message: result.issue }] : [])),
     };
   }

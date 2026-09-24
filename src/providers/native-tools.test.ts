@@ -19,7 +19,11 @@ describe("native tools provider", () => {
     await mkdir(bin);
     for (const tool of ["npm", "pnpm", "uv", "bun", "brew", "docker"]) {
       const executable = path.join(bin, tool);
-      await writeFile(executable, `#!/bin/sh\necho ${tool}-ok\n`);
+      const output =
+        tool === "pnpm"
+          ? `if [ "$1" = "store" ] && [ "$2" = "path" ]; then echo "${path.join(home, "pnpm-store/v11")}"; else echo pnpm-ok; fi`
+          : `echo ${tool}-ok`;
+      await writeFile(executable, `#!/bin/sh\n${output}\n`);
       await chmod(executable, 0o755);
     }
     const npx = path.join(home, ".npm/_npx/old-workspace");
@@ -29,6 +33,8 @@ describe("native tools provider", () => {
     await utimes(npx, old, old);
     await mkdir(path.join(home, ".npm/_cacache"), { recursive: true });
     await writeFile(path.join(home, ".npm/_cacache/item"), "cache");
+    await mkdir(path.join(home, "pnpm-store/v11"), { recursive: true });
+    await writeFile(path.join(home, "pnpm-store/v11/item"), "cache");
 
     const result = await new NativeToolsProvider().scan({
       homeDirectory: home,
@@ -47,6 +53,9 @@ describe("native tools provider", () => {
       "Preview:",
     );
     expect(result.candidates.filter((candidate) => candidate.providerId === "docker")).toHaveLength(2);
+    expect(result.candidates.find((candidate) => candidate.providerId === "pnpm")?.path).toBe(
+      path.join(home, "pnpm-store/v11"),
+    );
     expect(
       result.candidates
         .filter((candidate) => candidate.cleanupPolicy === "command")
