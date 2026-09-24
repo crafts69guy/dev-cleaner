@@ -33,4 +33,15 @@ describe("filesystem helpers", () => {
     expect(isOlderThan(new Date("2026-09-17T00:00:00Z"), 7, now)).toBe(true);
     expect(isOlderThan(new Date("2026-09-18T00:00:00Z"), 7, now)).toBe(false);
   });
+
+  it("rethrows filesystem errors other than a missing path", async () => {
+    await expect(pathExists("\0invalid-path")).rejects.toThrow();
+  });
+
+  it("honors an already-aborted size request", async () => {
+    const controller = new AbortController();
+    controller.abort(new Error("scan cancelled"));
+
+    await expect(directorySize("/unused", controller.signal)).rejects.toThrow("scan cancelled");
+  });
 });

@@ -27,7 +27,7 @@ describe("path safety", () => {
     await expect(
       assertSafeTrashPath(artifact, {
         homeDirectory: home,
-        allowedRoots: [root],
+        allowedRoots: [path.join(home, "missing-root"), root],
         expectedNames: PROJECT_ARTIFACT_NAMES,
       }),
     ).resolves.toBeUndefined();

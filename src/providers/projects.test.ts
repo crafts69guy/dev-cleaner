@@ -18,7 +18,9 @@ describe("project artifacts provider", () => {
     temporaryDirectories.push(root, external);
     await mkdir(path.join(root, "app/node_modules/nested/build"), { recursive: true });
     await mkdir(path.join(root, "app/.next"), { recursive: true });
+    await mkdir(path.join(root, "app/.private/target"), { recursive: true });
     await mkdir(path.join(root, "app/src"), { recursive: true });
+    await mkdir(path.join(root, "one/two/three/four/five/six/seven/eight/nine/ten"), { recursive: true });
     await writeFile(path.join(root, "app/node_modules/package"), "1234");
     await mkdir(path.join(external, "target"));
     await symlink(external, path.join(root, "linked"));

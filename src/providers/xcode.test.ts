@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -18,6 +18,8 @@ describe("Xcode provider", () => {
     const project = path.join(home, "Library/Developer/Xcode/DerivedData/App-hash");
     await mkdir(project, { recursive: true });
     await writeFile(path.join(project, "cache"), "123");
+    await writeFile(path.join(path.dirname(project), "README.txt"), "ignored");
+    await symlink(project, path.join(path.dirname(project), "current"));
 
     const result = await new XcodeProvider().scan({ homeDirectory: home, projectRoots: [] });
     expect(result.issues).toEqual([]);
@@ -32,5 +34,17 @@ describe("Xcode provider", () => {
       candidates: [],
       issues: [],
     });
+  });
+
+  it("reports an unreadable DerivedData shape as an issue", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "dev-cleaner-xcode-error-"));
+    temporaryDirectories.push(home);
+    const derivedData = path.join(home, "Library/Developer/Xcode/DerivedData");
+    await mkdir(path.dirname(derivedData), { recursive: true });
+    await writeFile(derivedData, "not a directory");
+
+    const result = await new XcodeProvider().scan({ homeDirectory: home, projectRoots: [] });
+    expect(result.candidates).toEqual([]);
+    expect(result.issues).toEqual([expect.objectContaining({ providerId: "xcode" })]);
   });
 });
