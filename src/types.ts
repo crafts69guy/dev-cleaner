@@ -1,5 +1,19 @@
 export type ProviderId =
-  "codex" | "claude" | "npm" | "pnpm" | "bun" | "uv" | "homebrew" | "xcode" | "docker" | "projects";
+  | "codex"
+  | "claude"
+  | "node"
+  | "npm"
+  | "pnpm"
+  | "bun"
+  | "uv"
+  | "rustup"
+  | "cargo"
+  | "gradle"
+  | "android"
+  | "homebrew"
+  | "xcode"
+  | "docker"
+  | "projects";
 
 export type CleanupPolicy = "trash" | "command";
 export type RiskLevel = "safe" | "review" | "high";

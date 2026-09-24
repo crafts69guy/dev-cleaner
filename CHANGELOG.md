@@ -6,3 +6,4 @@
 - Clean package-manager caches through their native commands.
 - Find Xcode DerivedData and generated artifacts inside explicitly configured project roots.
 - Review every candidate before cleanup, move file-backed data to Trash, and retain local cleanup history.
+- Find obsolete pnpm stores, fnm Node.js versions, inactive Rust toolchains, Cargo caches, and Gradle/Android caches.

@@ -72,6 +72,27 @@ describe("cleanup orchestration", () => {
     ).toContain("Missing command");
   });
 
+  it("allows runtime caches only inside their managed roots", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "dev-cleaner-runtime-cleanup-"));
+    temporaryDirectories.push(home);
+    const nodeVersion = path.join(home, ".local/share/fnm/node-versions/v18.20.0");
+    await mkdir(nodeVersion, { recursive: true });
+    const candidate: CleanupCandidate = {
+      id: "node:v18",
+      providerId: "node",
+      section: "Runtime Versions",
+      title: "Node.js v18",
+      subtitle: nodeVersion,
+      description: "test",
+      cleanupPolicy: "trash",
+      risk: "review",
+      selectedByDefault: false,
+      path: nodeVersion,
+    };
+    expect((await cleanCandidate(candidate, { homeDirectory: home, projectRoots: [] })).status).toBe("cleaned");
+    expect(trash).toHaveBeenCalledWith(nodeVersion);
+  });
+
   it("runs commands sequentially and reports progress", async () => {
     const progress: string[] = [];
     const candidate = (id: string): CleanupCandidate => ({

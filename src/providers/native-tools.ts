@@ -153,7 +153,13 @@ export class NativeToolsProvider implements CleanupProvider {
       try {
         const executable = await resolveExecutable(definition.executable, context);
         if (!executable) continue;
-        const sizePath = definition.sizePath?.(context.homeDirectory);
+        let sizePath = definition.sizePath?.(context.homeDirectory);
+        if (definition.providerId === "pnpm") {
+          const version = await runCommand({ executable, args: ["--version"], timeoutMs: 10_000 }, context.signal);
+          const major = Number.parseInt(version.stdout.trim().split(".")[0], 10);
+          const activeStore = path.join(context.homeDirectory, "Library/pnpm/store", `v${major}`);
+          sizePath = Number.isFinite(major) && (await pathExists(activeStore)) ? activeStore : undefined;
+        }
         let preview = "";
         if (definition.providerId === "homebrew") {
           try {

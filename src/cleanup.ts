@@ -11,6 +11,13 @@ function allowedRoots(candidate: CleanupCandidate, context: ScanContext): string
     return [path.join(context.homeDirectory, "Library/Developer/Xcode/DerivedData")];
   }
   if (candidate.providerId === "npm") return [path.join(context.homeDirectory, ".npm/_npx")];
+  if (candidate.providerId === "pnpm") return [path.join(context.homeDirectory, "Library/pnpm/store")];
+  if (candidate.providerId === "node") return [path.join(context.homeDirectory, ".local/share/fnm/node-versions")];
+  if (candidate.providerId === "cargo") return [path.join(context.homeDirectory, ".cargo")];
+  if (candidate.providerId === "gradle") return [path.join(context.homeDirectory, ".gradle")];
+  if (candidate.providerId === "android") {
+    return [path.join(context.homeDirectory, ".android"), path.join(context.homeDirectory, "Library/Android/sdk")];
+  }
   if (candidate.providerId === "claude") {
     return [
       path.join(context.homeDirectory, ".local/share/claude/versions"),

@@ -2,11 +2,13 @@ import type { CleanupProvider, ScanContext, ScanResult } from "../types";
 import { AiToolsProvider } from "./ai-tools";
 import { NativeToolsProvider } from "./native-tools";
 import { ProjectArtifactsProvider } from "./projects";
+import { RuntimeCachesProvider } from "./runtime-caches";
 import { XcodeProvider } from "./xcode";
 
 export const providers: CleanupProvider[] = [
   new AiToolsProvider(),
   new NativeToolsProvider(),
+  new RuntimeCachesProvider(),
   new ProjectArtifactsProvider(),
   new XcodeProvider(),
 ];

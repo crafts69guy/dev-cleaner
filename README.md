@@ -9,7 +9,10 @@ Nothing is removed automatically. You choose every cleanup candidate and confirm
 - Old Codex and Claude Code installations, while preserving the current version and one rollback version
 - Codex and Claude temporary staging data older than seven days
 - npm cache verification and stale `npx` workspaces
-- pnpm and uv native cache pruning
+- pnpm and uv native cache pruning, plus pnpm stores from older store formats
+- Old fnm-managed Node.js versions while preserving the default and one rollback version
+- Inactive rustup toolchains and regenerable Cargo registry/Git caches
+- Gradle caches, wrapper distributions, Android user cache, and SDK temporary downloads
 - Optional Bun cache clearing and Homebrew cleanup
 - Xcode DerivedData
 - Docker unused images and build cache; containers, networks, and volumes are preserved
@@ -23,6 +26,7 @@ Nothing is removed automatically. You choose every cleanup candidate and confirm
 - Cleanup paths must be below an approved root. Project artifacts also require an allowlisted directory name.
 - Symlinks are not followed while calculating sizes or scanning projects.
 - AI sessions, project history, credentials, configuration, plugins, Docker volumes, and active containers are outside the cleanup scope.
+- fnm, rustup, Cargo, Gradle, and Android candidates are never selected by default.
 
 ## Development
 
