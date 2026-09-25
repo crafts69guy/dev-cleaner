@@ -72,6 +72,35 @@ describe("cleanup orchestration", () => {
     ).toContain("Missing command");
   });
 
+  it("refuses kept items before running a command or moving a path to Trash", async () => {
+    const base: CleanupCandidate = {
+      id: "kept",
+      providerId: "npm",
+      section: "test",
+      title: "Kept item",
+      subtitle: "test",
+      description: "test",
+      cleanupPolicy: "trash",
+      risk: "safe",
+      selectedByDefault: true,
+      path: "/tmp/kept",
+    };
+    const context = {
+      homeDirectory: os.tmpdir(),
+      projectRoots: [],
+      excludedCandidateIds: new Set([base.id]),
+    };
+    const results = await cleanCandidates(
+      [base, { ...base, cleanupPolicy: "command", command: { executable: "/bin/echo", args: ["deleted"] } }],
+      context,
+    );
+    expect(results).toEqual([
+      expect.objectContaining({ status: "failed", message: expect.stringContaining("kept out of cleanup") }),
+      expect.objectContaining({ status: "failed", message: expect.stringContaining("kept out of cleanup") }),
+    ]);
+    expect(trash).not.toHaveBeenCalled();
+  });
+
   it("allows runtime caches only inside their managed roots", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "dev-cleaner-runtime-cleanup-"));
     temporaryDirectories.push(home);

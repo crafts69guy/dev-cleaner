@@ -4,10 +4,11 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import { isPathInside } from "./lib/path-safety";
-import type { CleanupCandidate, CleanupResult, CleanupRun } from "./types";
+import type { CleanupCandidate, CleanupResult, CleanupRun, ExcludedItem } from "./types";
 
 const PROJECT_ROOTS_KEY = "project-roots";
 const CLEANUP_HISTORY_KEY = "cleanup-history";
+const EXCLUDED_ITEMS_KEY = "excluded-items";
 const MAX_HISTORY_RUNS = 25;
 
 export async function normalizeProjectRoots(roots: string[]): Promise<string[]> {
@@ -39,6 +40,37 @@ export async function readProjectRoots(): Promise<string[] | undefined> {
 
 export async function writeProjectRoots(roots: string[]): Promise<void> {
   await LocalStorage.setItem(PROJECT_ROOTS_KEY, JSON.stringify(await normalizeProjectRoots(roots)));
+}
+
+function isExcludedItem(value: unknown): value is ExcludedItem {
+  if (typeof value !== "object" || value === null) return false;
+  const item = value as Record<string, unknown>;
+  return (
+    typeof item.id === "string" &&
+    item.id.length > 0 &&
+    typeof item.title === "string" &&
+    typeof item.subtitle === "string" &&
+    typeof item.providerId === "string" &&
+    typeof item.addedAt === "string" &&
+    (item.path === undefined || typeof item.path === "string")
+  );
+}
+
+export async function readExcludedItems(): Promise<ExcludedItem[]> {
+  const value = await LocalStorage.getItem<string>(EXCLUDED_ITEMS_KEY);
+  if (value === undefined) return [];
+  let items: unknown;
+  try {
+    items = JSON.parse(value);
+  } catch {
+    throw new Error("Saved kept items are invalid");
+  }
+  if (!Array.isArray(items) || !items.every(isExcludedItem)) throw new Error("Saved kept items are invalid");
+  return [...new Map(items.map((item) => [item.id, item] as const)).values()];
+}
+
+export async function writeExcludedItems(items: ExcludedItem[]): Promise<void> {
+  await LocalStorage.setItem(EXCLUDED_ITEMS_KEY, JSON.stringify(items));
 }
 
 export async function readCleanupHistory(): Promise<CleanupRun[]> {

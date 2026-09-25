@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Add persistent per-item cleanup exclusions with a management view and execution-time protection.
 - Add list/card view switching, clearer risk and selection indicators, and a dedicated candidate detail page.
 - Discover the active pnpm store through the native CLI instead of inferring its format from the pnpm major version.
 - Protect Node and Rust runtimes referenced by project pins and rustup overrides.

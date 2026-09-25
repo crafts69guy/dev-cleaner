@@ -60,6 +60,9 @@ function expectedNames(candidate: CleanupCandidate): ReadonlySet<string> | undef
 export async function cleanCandidate(candidate: CleanupCandidate, context: ScanContext): Promise<CleanupResult> {
   try {
     context.signal?.throwIfAborted();
+    if (context.excludedCandidateIds?.has(candidate.id)) {
+      throw new Error("Item is kept out of cleanup; allow cleanup again before retrying");
+    }
     if (candidate.cleanupPolicy === "command") {
       if (!candidate.command) throw new Error("Missing command specification");
       const before = candidate.path

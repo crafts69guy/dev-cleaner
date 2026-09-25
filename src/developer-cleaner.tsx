@@ -19,12 +19,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { cleanCandidates } from "./cleanup";
 import { CleanupHistory, CleanupReport } from "./components/CleanupHistory";
+import { ExcludedItems } from "./components/ExcludedItems";
 import { ProjectRootsForm } from "./components/ProjectRootsForm";
 import { isAbortError } from "./lib/async";
 import { formatAge, formatBytes } from "./lib/format";
 import { scanAll } from "./providers";
-import { readProjectRoots, recordCleanupRun } from "./storage";
-import type { CleanupCandidate, ProtectedItem, RiskLevel, ScanIssue } from "./types";
+import { readExcludedItems, readProjectRoots, recordCleanupRun, writeExcludedItems } from "./storage";
+import type { CleanupCandidate, ExcludedItem, ProtectedItem, RiskLevel, ScanIssue } from "./types";
 
 function iconFor(candidate: CleanupCandidate) {
   const source = candidate.cleanupPolicy === "command" ? Icon.Terminal : Icon.Folder;
@@ -83,6 +84,8 @@ function CandidateActions({
   isSelected,
   selectedCount,
   toggle,
+  keep,
+  manageExcludedItems,
   cleanSelection,
   refresh,
   isLoading,
@@ -103,6 +106,8 @@ function CandidateActions({
   isSelected: boolean;
   selectedCount: number;
   toggle: () => void;
+  keep: () => Promise<void>;
+  manageExcludedItems: () => void;
   cleanSelection: () => Promise<void>;
   refresh: () => void;
   isLoading: boolean;
@@ -131,6 +136,7 @@ function CandidateActions({
         />
       )}
       <Action.Push title="View Item Details" icon={Icon.Eye} target={<CandidateDetail candidate={candidate} />} />
+      {!isCleaning ? <Action title="Keep Item (Exclude from Cleanup)" icon={Icon.Shield} onAction={keep} /> : null}
       {isLoading ? (
         <Action title="Cancel Scan" icon={Icon.Stop} onAction={cancelScan} />
       ) : !isCleaning && selectedCount > 0 ? (
@@ -177,11 +183,20 @@ function CandidateActions({
         />
       ) : null}
       <Action.Push title="View Cleanup History" icon={Icon.Clock} target={<CleanupHistory />} />
+      <Action title="Manage Kept Items" icon={Icon.Shield} onAction={manageExcludedItems} />
     </ActionPanel>
   );
 }
 
-function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: string[]) => void }) {
+function Dashboard({
+  roots,
+  setRoots,
+  initialExcludedItems,
+}: {
+  roots: string[];
+  setRoots: (roots: string[]) => void;
+  initialExcludedItems: ExcludedItem[];
+}) {
   const preferences = getPreferenceValues<Preferences>();
   const { push } = useNavigation();
   const homeDirectory = os.homedir();
@@ -189,6 +204,8 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
   const [issues, setIssues] = useState<ScanIssue[]>([]);
   const [protectedItems, setProtectedItems] = useState<ProtectedItem[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [excludedItems, setExcludedItems] = useState(initialExcludedItems);
+  const excludedItemsRef = useRef(initialExcludedItems);
   const [isLoading, setIsLoading] = useState(true);
   const [isCleaning, setIsCleaning] = useState(false);
   const [riskFilter, setRiskFilter] = useState<"all" | RiskLevel>("all");
@@ -198,6 +215,7 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
   const [scanVersion, setScanVersion] = useState(0);
   const scanController = useRef<AbortController | undefined>(undefined);
   const cleanupController = useRef<AbortController | undefined>(undefined);
+  const excludedIds = useMemo(() => new Set(excludedItems.map((item) => item.id)), [excludedItems]);
 
   const context = useMemo(
     () => ({ homeDirectory, projectRoots: roots, extraPath: preferences.extraPath }),
@@ -225,7 +243,14 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
         setCandidates(result.candidates);
         setIssues(result.issues);
         setProtectedItems(result.protectedItems ?? []);
-        setSelected(new Set(result.candidates.filter((candidate) => candidate.selectedByDefault).map(({ id }) => id)));
+        const keptIds = new Set(excludedItemsRef.current.map((item) => item.id));
+        setSelected(
+          new Set(
+            result.candidates
+              .filter((candidate) => candidate.selectedByDefault && !keptIds.has(candidate.id))
+              .map(({ id }) => id),
+          ),
+        );
       })
       .catch(async (error) => {
         if (active && !isAbortError(error))
@@ -246,10 +271,74 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
     setIsLoading(false);
   }, []);
   const cancelCleanup = useCallback(() => cleanupController.current?.abort(), []);
-  const selectedCandidates = candidates.filter((candidate) => selected.has(candidate.id));
+  const selectedCandidates = candidates.filter(
+    (candidate) => selected.has(candidate.id) && !excludedIds.has(candidate.id),
+  );
+
+  async function keepCandidate(candidate: CleanupCandidate) {
+    if (excludedItemsRef.current.some((item) => item.id === candidate.id)) return;
+    const next: ExcludedItem[] = [
+      ...excludedItemsRef.current,
+      {
+        id: candidate.id,
+        title: candidate.title,
+        subtitle: candidate.subtitle,
+        providerId: candidate.providerId,
+        path: candidate.path,
+        addedAt: new Date().toISOString(),
+      },
+    ];
+    try {
+      await writeExcludedItems(next);
+      excludedItemsRef.current = next;
+      setExcludedItems(next);
+      setSelected((current) => new Set([...current].filter((id) => id !== candidate.id)));
+      await showToast({ style: Toast.Style.Success, title: "Item kept out of cleanup" });
+    } catch (error) {
+      await showToast({ style: Toast.Style.Failure, title: "Could not keep item", message: (error as Error).message });
+    }
+  }
+
+  async function allowExcludedItem(id: string): Promise<boolean> {
+    const next = excludedItemsRef.current.filter((item) => item.id !== id);
+    try {
+      await writeExcludedItems(next);
+      excludedItemsRef.current = next;
+      setExcludedItems(next);
+      await showToast({ style: Toast.Style.Success, title: "Item can be selected again" });
+      return true;
+    } catch (error) {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Could not update kept items",
+        message: (error as Error).message,
+      });
+      return false;
+    }
+  }
+
+  function manageExcludedItems() {
+    push(<ExcludedItems initialItems={excludedItemsRef.current} onAllow={allowExcludedItem} />);
+  }
 
   async function runCleanup(targets: CleanupCandidate[]) {
     if (cleanupController.current) return;
+    let savedKeptItems: ExcludedItem[];
+    try {
+      savedKeptItems = await readExcludedItems();
+    } catch (error) {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Could not verify kept items",
+        message: (error as Error).message,
+      });
+      return;
+    }
+    const keptIds = new Set([...excludedItemsRef.current, ...savedKeptItems].map((item) => item.id));
+    if (targets.some((candidate) => keptIds.has(candidate.id))) {
+      await showToast({ style: Toast.Style.Failure, title: "A kept item cannot be cleaned" });
+      return;
+    }
     if (targets.length === 0) {
       await showToast({ style: Toast.Style.Failure, title: "No cleanup items selected" });
       return;
@@ -272,9 +361,13 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
     const startedAt = new Date();
     const toast = await showToast({ style: Toast.Style.Animated, title: "Cleaning selected items…" });
     try {
-      const results = await cleanCandidates(targets, { ...context, signal: controller.signal }, (completed, count) => {
-        toast.message = `${completed} of ${count}`;
-      });
+      const results = await cleanCandidates(
+        targets,
+        { ...context, excludedCandidateIds: keptIds, signal: controller.signal },
+        (completed, count) => {
+          toast.message = `${completed} of ${count}`;
+        },
+      );
       const failures = results.filter((result) => result.status === "failed");
       const cancelled = results.filter((result) => result.status === "cancelled");
       toast.style = failures.length === 0 && cancelled.length === 0 ? Toast.Style.Success : Toast.Style.Failure;
@@ -308,7 +401,7 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
   const sections = useMemo(() => {
     const grouped = new Map<string, CleanupCandidate[]>();
     const visibleCandidates = candidates
-      .filter((candidate) => riskFilter === "all" || candidate.risk === riskFilter)
+      .filter((candidate) => !excludedIds.has(candidate.id) && (riskFilter === "all" || candidate.risk === riskFilter))
       .sort((left, right) => {
         if (sortMode === "name") return left.title.localeCompare(right.title);
         if (sortMode === "age")
@@ -319,7 +412,7 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
       grouped.set(candidate.section, [...(grouped.get(candidate.section) ?? []), candidate]);
     }
     return grouped;
-  }, [candidates, riskFilter, sortMode]);
+  }, [candidates, excludedIds, riskFilter, sortMode]);
 
   function toggle(id: string) {
     setSelected((current) => {
@@ -333,9 +426,13 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
   const selectSafe = useCallback(
     () =>
       setSelected(
-        new Set(candidates.filter((candidate) => candidate.risk === "safe").map((candidate) => candidate.id)),
+        new Set(
+          candidates
+            .filter((candidate) => candidate.risk === "safe" && !excludedIds.has(candidate.id))
+            .map((candidate) => candidate.id),
+        ),
       ),
-    [candidates],
+    [candidates, excludedIds],
   );
   const clearSelection = useCallback(() => setSelected(new Set()), []);
   const selectLarge = useCallback(
@@ -343,11 +440,14 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
       setSelected(
         new Set(
           candidates
-            .filter((candidate) => candidate.risk !== "high" && (candidate.bytes ?? 0) >= 1024 ** 3)
+            .filter(
+              (candidate) =>
+                !excludedIds.has(candidate.id) && candidate.risk !== "high" && (candidate.bytes ?? 0) >= 1024 ** 3,
+            )
             .map((candidate) => candidate.id),
         ),
       ),
-    [candidates],
+    [candidates, excludedIds],
   );
   const cycleSort = useCallback(
     () => setSortMode((current) => (current === "size" ? "age" : current === "age" ? "name" : "size")),
@@ -359,17 +459,23 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
     ? formatBytes(selectedBytes)
     : "Size unavailable";
   const navigationTitle = selected.size ? `${selected.size} selected · ${knownFootprint}` : "Developer Cleaner";
+  const availableCandidateCount = candidates.filter((candidate) => !excludedIds.has(candidate.id)).length;
   const emptyTitle = isLoading
     ? "Scanning developer data…"
-    : candidates.length > 0
-      ? "No matching items"
-      : "Nothing to clean";
+    : candidates.length > 0 && availableCandidateCount === 0
+      ? "All discovered items are kept"
+      : availableCandidateCount > 0
+        ? "No matching items"
+        : "Nothing to clean";
   const emptyDescription =
-    candidates.length > 0
-      ? "Try another search or risk filter."
-      : issues.length > 0
-        ? issues.map((issue) => issue.message).join("\n")
-        : "Refresh the scan or configure another project root.";
+    candidates.length > 0 && availableCandidateCount === 0
+      ? "Manage kept items to allow any of them back into cleanup."
+      : availableCandidateCount > 0
+        ? "Try another search or risk filter."
+        : issues.length > 0
+          ? issues.map((issue) => issue.message).join("\n")
+          : "Refresh the scan or configure another project root.";
+  const manageExcludedAction = <Action title="Manage Kept Items" icon={Icon.Shield} onAction={manageExcludedItems} />;
   const viewAction = (
     <Action
       title={viewMode === "list" ? "Show Cards" : "Show List"}
@@ -386,6 +492,7 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
         <Action title="Refresh Scan" icon={Icon.ArrowClockwise} onAction={refresh} />
       )}
       {viewAction}
+      {manageExcludedAction}
       {isLoading && !isCleaning ? <Action title="Cancel Scan" icon={Icon.Stop} onAction={cancelScan} /> : null}
       {!isCleaning ? (
         <Action.Push
@@ -403,6 +510,8 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
       isSelected={selected.has(candidate.id)}
       selectedCount={selected.size}
       toggle={() => toggle(candidate.id)}
+      keep={() => keepCandidate(candidate)}
+      manageExcludedItems={manageExcludedItems}
       cleanSelection={cleanSelection}
       refresh={refresh}
       isLoading={isLoading}
@@ -476,7 +585,12 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
                 title={issue.providerId}
                 subtitle={issue.message}
                 content={{ source: Icon.Warning, tintColor: Color.Orange }}
-                actions={<ActionPanel>{viewAction}</ActionPanel>}
+                actions={
+                  <ActionPanel>
+                    {viewAction}
+                    {manageExcludedAction}
+                  </ActionPanel>
+                }
               />
             ))}
           </Grid.Section>
@@ -493,6 +607,7 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
                   <ActionPanel>
                     {item.path ? <Action.ShowInFinder path={item.path} /> : null}
                     {viewAction}
+                    {manageExcludedAction}
                   </ActionPanel>
                 }
               />
@@ -559,7 +674,12 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
               title={issue.providerId}
               subtitle={issue.message}
               icon={{ source: Icon.Warning, tintColor: Color.Orange }}
-              actions={<ActionPanel>{viewAction}</ActionPanel>}
+              actions={
+                <ActionPanel>
+                  {viewAction}
+                  {manageExcludedAction}
+                </ActionPanel>
+              }
             />
           ))}
         </List.Section>
@@ -578,9 +698,13 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
                   <ActionPanel>
                     <Action.ShowInFinder path={item.path} />
                     {viewAction}
+                    {manageExcludedAction}
                   </ActionPanel>
                 ) : (
-                  <ActionPanel>{viewAction}</ActionPanel>
+                  <ActionPanel>
+                    {viewAction}
+                    {manageExcludedAction}
+                  </ActionPanel>
                 )
               }
             />
@@ -593,16 +717,52 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
 
 export default function Command() {
   const [roots, setRoots] = useState<string[] | undefined>();
+  const [initialExcludedItems, setInitialExcludedItems] = useState<ExcludedItem[]>([]);
   const [isReady, setIsReady] = useState(false);
+  const [loadError, setLoadError] = useState<string>();
+  const [loadVersion, setLoadVersion] = useState(0);
 
   useEffect(() => {
-    readProjectRoots().then((storedRoots) => {
-      setRoots(storedRoots);
-      setIsReady(true);
-    });
-  }, []);
+    let active = true;
+    setIsReady(false);
+    setLoadError(undefined);
+    Promise.all([readProjectRoots(), readExcludedItems()])
+      .then(([storedRoots, storedExcludedItems]) => {
+        if (!active) return;
+        setRoots(storedRoots);
+        setInitialExcludedItems(storedExcludedItems);
+      })
+      .catch((error) => {
+        if (active) setLoadError((error as Error).message);
+      })
+      .finally(() => {
+        if (active) setIsReady(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [loadVersion]);
 
   if (!isReady) return <List isLoading />;
+  if (loadError)
+    return (
+      <List>
+        <List.EmptyView
+          icon={Icon.Shield}
+          title="Kept Items Unavailable"
+          description={`${loadError}. Cleanup is paused until these items can be loaded.`}
+          actions={
+            <ActionPanel>
+              <Action
+                title="Retry Loading"
+                icon={Icon.ArrowClockwise}
+                onAction={() => setLoadVersion((version) => version + 1)}
+              />
+            </ActionPanel>
+          }
+        />
+      </List>
+    );
   if (!roots) return <ProjectRootsForm onSave={setRoots} />;
-  return <Dashboard roots={roots} setRoots={setRoots} />;
+  return <Dashboard roots={roots} setRoots={setRoots} initialExcludedItems={initialExcludedItems} />;
 }

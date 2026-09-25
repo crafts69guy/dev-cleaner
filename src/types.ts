@@ -43,6 +43,15 @@ export interface CleanupCandidate {
   command?: CommandSpec;
 }
 
+export interface ExcludedItem {
+  id: string;
+  title: string;
+  subtitle: string;
+  providerId: ProviderId;
+  path?: string;
+  addedAt: string;
+}
+
 export interface ProtectedItem {
   id: string;
   providerId: ProviderId;
@@ -65,6 +74,7 @@ export interface ScanResult {
 export interface ScanContext {
   homeDirectory: string;
   projectRoots: string[];
+  excludedCandidateIds?: ReadonlySet<string>;
   extraPath?: string;
   now?: Date;
   signal?: AbortSignal;

@@ -31,6 +31,7 @@ Nothing is removed automatically. You choose every cleanup candidate and confirm
 - AI sessions, project history, credentials, configuration, plugins, Docker volumes, and active containers are outside the cleanup scope.
 - fnm, rustup, Cargo, Gradle, Android, and Apple developer cache candidates are never selected by default.
 - Node and Rust versions referenced by configured projects, rustup overrides, defaults, current versions, and rollback versions are protected and shown separately.
+- Kept items are excluded by their exact candidate ID from future scans, selection presets, and cleanup execution until you allow them again.
 
 ## Development
 
@@ -55,6 +56,8 @@ Project roots are canonicalized and nested roots are collapsed to avoid duplicat
 Candidates appear in a compact list by default. Use **Show Cards** in an item's action panel (⌘L) to switch to a three-column card view; the same action switches back to the list. Search, risk filtering, selection, and sorting work in both views. Each item has a detail page with its description, path or command, cleanup method, risk, and current footprint. The navigation title summarizes selected items and their known footprint.
 
 Candidates can be sorted by size, age, or name, and selected with safe or large-review presets. Completed operations are recorded in a local cleanup history with per-item success, failure, cancellation, current-footprint, and measured-reclaim details. Failed items can be retried from the immediate cleanup report, and reports can be copied as text or JSON.
+
+Use **Keep Item (Exclude from Cleanup)** on a candidate to hide it from both views and prevent it from being selected or cleaned on later scans. Open **Manage Kept Items** from the action panel to review saved exclusions and choose **Allow Cleanup Again** when you want an item to reappear. Exclusions apply to individual candidates, not entire providers or parent directories.
 
 Displayed cache sizes represent the current footprint. Native tools determine how much is reclaimable; Developer Cleaner measures the before/after difference when the managed cache path remains available. Items moved to Trash report zero immediate reclaimed space until Trash is emptied.
 

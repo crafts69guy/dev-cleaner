@@ -13,11 +13,13 @@ vi.mock("@raycast/api", () => ({
 import {
   normalizeProjectRoots,
   readCleanupHistory,
+  readExcludedItems,
   readProjectRoots,
   recordCleanupRun,
+  writeExcludedItems,
   writeProjectRoots,
 } from "./storage";
-import type { CleanupCandidate } from "./types";
+import type { CleanupCandidate, ExcludedItem } from "./types";
 
 beforeEach(() => values.clear());
 
@@ -33,6 +35,27 @@ describe("local storage", () => {
     await expect(normalizeProjectRoots(["/projects/app", "/projects", "/projects/app"])).resolves.toEqual([
       "/projects",
     ]);
+  });
+
+  it("persists exact kept items and refuses malformed records", async () => {
+    const item: ExcludedItem = {
+      id: "projects:/work/app/node_modules",
+      title: "node_modules",
+      subtitle: "/work/app/node_modules",
+      providerId: "projects",
+      path: "/work/app/node_modules",
+      addedAt: "2026-09-25T00:00:00.000Z",
+    };
+    await writeExcludedItems([item]);
+    await expect(readExcludedItems()).resolves.toEqual([item]);
+    values.set("excluded-items", JSON.stringify([item, item]));
+    await expect(readExcludedItems()).resolves.toEqual([item]);
+    values.set("excluded-items", JSON.stringify([item, { id: 42 }]));
+    await expect(readExcludedItems()).rejects.toThrow("Saved kept items are invalid");
+    values.set("excluded-items", "invalid");
+    await expect(readExcludedItems()).rejects.toThrow("Saved kept items are invalid");
+    values.set("excluded-items", "");
+    await expect(readExcludedItems()).rejects.toThrow("Saved kept items are invalid");
   });
 
   it("records structured cleanup history", async () => {
