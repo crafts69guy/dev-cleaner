@@ -52,7 +52,9 @@ Project scanning is optional. Continue without selecting a directory to scan dev
 
 Project roots are canonicalized and nested roots are collapsed to avoid duplicate scans. Selecting the entire home directory requires an explicit warning confirmation.
 
-Candidates can be filtered by risk, sorted by size, age, or name, and selected with safe or large-review presets. Completed operations are recorded in a local cleanup history with per-item success, failure, cancellation, current-footprint, and measured-reclaim details. Failed items can be retried from the immediate cleanup report, and reports can be copied as text or JSON.
+Candidates appear in a compact list by default. Use **Show Cards** in an item's action panel (⌘L) to switch to a three-column card view; the same action switches back to the list. Search, risk filtering, selection, and sorting work in both views. Each item has a detail page with its description, path or command, cleanup method, risk, and current footprint. The navigation title summarizes selected items and their known footprint.
+
+Candidates can be sorted by size, age, or name, and selected with safe or large-review presets. Completed operations are recorded in a local cleanup history with per-item success, failure, cancellation, current-footprint, and measured-reclaim details. Failed items can be retried from the immediate cleanup report, and reports can be copied as text or JSON.
 
 Displayed cache sizes represent the current footprint. Native tools determine how much is reclaimable; Developer Cleaner measures the before/after difference when the managed cache path remains available. Items moved to Trash report zero immediate reclaimed space until Trash is emptied.
 

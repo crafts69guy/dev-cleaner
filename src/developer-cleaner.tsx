@@ -3,6 +3,8 @@ import {
   ActionPanel,
   Alert,
   Color,
+  Detail,
+  Grid,
   Icon,
   Keyboard,
   List,
@@ -31,24 +33,55 @@ function iconFor(candidate: CleanupCandidate) {
 }
 
 function candidateMarkdown(candidate: CleanupCandidate): string {
-  const lines = [
-    `# ${candidate.title}`,
-    "",
-    candidate.description,
-    "",
-    `- **Provider:** ${candidate.providerId}`,
-    `- **Policy:** ${candidate.cleanupPolicy === "trash" ? "Move to Trash" : "Native cleanup command"}`,
-    `- **Risk:** ${candidate.risk}`,
-    `- **Current size:** ${formatBytes(candidate.bytes)}`,
-  ];
-  if (candidate.modifiedAt) lines.push(`- **Last modified:** ${candidate.modifiedAt.toLocaleString()}`);
+  const lines = [`# ${candidate.title}`, "", candidate.description];
   lines.push("", "```text", candidate.subtitle, "```");
   return lines.join("\n");
+}
+
+function riskLabel(risk: RiskLevel): string {
+  return risk === "safe" ? "Safe" : risk === "review" ? "Review" : "High Risk";
+}
+
+function riskColor(risk: RiskLevel): Color {
+  return risk === "safe" ? Color.Green : risk === "review" ? Color.Orange : Color.Red;
+}
+
+function CandidateDetail({ candidate }: { candidate: CleanupCandidate }) {
+  return (
+    <Detail
+      navigationTitle={candidate.title}
+      markdown={candidateMarkdown(candidate)}
+      metadata={
+        <Detail.Metadata>
+          <Detail.Metadata.Label title="Current Footprint" text={formatBytes(candidate.bytes)} />
+          <Detail.Metadata.TagList title="Risk">
+            <Detail.Metadata.TagList.Item text={riskLabel(candidate.risk)} color={riskColor(candidate.risk)} />
+          </Detail.Metadata.TagList>
+          <Detail.Metadata.Label
+            title="Cleanup Method"
+            text={candidate.cleanupPolicy === "trash" ? "Move to Trash" : "Permanent native command"}
+          />
+          <Detail.Metadata.Label title="Source" text={candidate.providerId} />
+          {candidate.modifiedAt ? (
+            <Detail.Metadata.Label title="Last Modified" text={candidate.modifiedAt.toLocaleString()} />
+          ) : null}
+        </Detail.Metadata>
+      }
+      actions={
+        candidate.path ? (
+          <ActionPanel>
+            <Action.ShowInFinder path={candidate.path} />
+          </ActionPanel>
+        ) : undefined
+      }
+    />
+  );
 }
 
 function CandidateActions({
   candidate,
   isSelected,
+  selectedCount,
   toggle,
   cleanSelection,
   refresh,
@@ -63,9 +96,12 @@ function CandidateActions({
   cancelCleanup,
   cycleSort,
   sortMode,
+  viewMode,
+  setViewMode,
 }: {
   candidate: CleanupCandidate;
   isSelected: boolean;
+  selectedCount: number;
   toggle: () => void;
   cleanSelection: () => Promise<void>;
   refresh: () => void;
@@ -80,6 +116,8 @@ function CandidateActions({
   cancelCleanup: () => void;
   cycleSort: () => void;
   sortMode: "size" | "age" | "name";
+  viewMode: "list" | "cards";
+  setViewMode: (mode: "list" | "cards") => void;
 }) {
   return (
     <ActionPanel>
@@ -92,9 +130,10 @@ function CandidateActions({
           onAction={toggle}
         />
       )}
+      <Action.Push title="View Item Details" icon={Icon.Eye} target={<CandidateDetail candidate={candidate} />} />
       {isLoading ? (
         <Action title="Cancel Scan" icon={Icon.Stop} onAction={cancelScan} />
-      ) : !isCleaning ? (
+      ) : !isCleaning && selectedCount > 0 ? (
         <Action
           title="Clean Selected Items"
           icon={Icon.Trash}
@@ -108,7 +147,17 @@ function CandidateActions({
           <Action title="Preset: Safe Items" icon={Icon.CheckCircle} onAction={selectSafe} />
           <Action title="Preset: Large Review Items" icon={Icon.HardDrive} onAction={selectLarge} />
           <Action title="Clear Selection" icon={Icon.Circle} onAction={clearSelection} />
-          <Action title={`Change Sort (Currently ${sortMode})`} icon={Icon.List} onAction={cycleSort} />
+          <Action
+            title={`Sort by ${sortMode === "size" ? "Age" : sortMode === "age" ? "Name" : "Size"}`}
+            icon={Icon.List}
+            onAction={cycleSort}
+          />
+          <Action
+            title={viewMode === "list" ? "Show Cards" : "Show List"}
+            icon={viewMode === "list" ? Icon.AppWindowGrid3x3 : Icon.List}
+            shortcut={{ modifiers: ["cmd"], key: "l" }}
+            onAction={() => setViewMode(viewMode === "list" ? "cards" : "list")}
+          />
         </>
       ) : null}
       {candidate.path ? <Action.ShowInFinder path={candidate.path} /> : null}
@@ -144,6 +193,8 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
   const [isCleaning, setIsCleaning] = useState(false);
   const [riskFilter, setRiskFilter] = useState<"all" | RiskLevel>("all");
   const [sortMode, setSortMode] = useState<"size" | "age" | "name">("size");
+  const [viewMode, setViewMode] = useState<"list" | "cards">("list");
+  const [searchText, setSearchText] = useState("");
   const [scanVersion, setScanVersion] = useState(0);
   const scanController = useRef<AbortController | undefined>(undefined);
   const cleanupController = useRef<AbortController | undefined>(undefined);
@@ -303,10 +354,162 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
     [],
   );
 
+  const selectedBytes = selectedCandidates.reduce((sum, candidate) => sum + (candidate.bytes ?? 0), 0);
+  const knownFootprint = selectedCandidates.some((candidate) => candidate.bytes !== undefined)
+    ? formatBytes(selectedBytes)
+    : "Size unavailable";
+  const navigationTitle = selected.size ? `${selected.size} selected · ${knownFootprint}` : "Developer Cleaner";
+  const emptyTitle = isLoading
+    ? "Scanning developer data…"
+    : candidates.length > 0
+      ? "No matching items"
+      : "Nothing to clean";
+  const emptyDescription =
+    candidates.length > 0
+      ? "Try another search or risk filter."
+      : issues.length > 0
+        ? issues.map((issue) => issue.message).join("\n")
+        : "Refresh the scan or configure another project root.";
+  const viewAction = (
+    <Action
+      title={viewMode === "list" ? "Show Cards" : "Show List"}
+      icon={viewMode === "list" ? Icon.AppWindowGrid3x3 : Icon.List}
+      shortcut={{ modifiers: ["cmd"], key: "l" }}
+      onAction={() => setViewMode(viewMode === "list" ? "cards" : "list")}
+    />
+  );
+  const emptyActions = (
+    <ActionPanel>
+      {isCleaning ? (
+        <Action title="Cancel Cleanup" icon={Icon.Stop} onAction={cancelCleanup} />
+      ) : (
+        <Action title="Refresh Scan" icon={Icon.ArrowClockwise} onAction={refresh} />
+      )}
+      {viewAction}
+      {isLoading && !isCleaning ? <Action title="Cancel Scan" icon={Icon.Stop} onAction={cancelScan} /> : null}
+      {!isCleaning ? (
+        <Action.Push
+          title="Configure Project Roots"
+          icon={Icon.Gear}
+          target={<ProjectRootsForm initialRoots={roots} onSave={setRoots} />}
+        />
+      ) : null}
+      <Action.Push title="View Cleanup History" icon={Icon.Clock} target={<CleanupHistory />} />
+    </ActionPanel>
+  );
+  const candidateActions = (candidate: CleanupCandidate) => (
+    <CandidateActions
+      candidate={candidate}
+      isSelected={selected.has(candidate.id)}
+      selectedCount={selected.size}
+      toggle={() => toggle(candidate.id)}
+      cleanSelection={cleanSelection}
+      refresh={refresh}
+      isLoading={isLoading}
+      cancelScan={cancelScan}
+      selectSafe={selectSafe}
+      selectLarge={selectLarge}
+      clearSelection={clearSelection}
+      roots={roots}
+      configure={setRoots}
+      isCleaning={isCleaning}
+      cancelCleanup={cancelCleanup}
+      cycleSort={cycleSort}
+      sortMode={sortMode}
+      viewMode={viewMode}
+      setViewMode={setViewMode}
+    />
+  );
+
+  if (viewMode === "cards") {
+    return (
+      <Grid
+        isLoading={isLoading || isCleaning}
+        navigationTitle={navigationTitle}
+        columns={3}
+        filtering={true}
+        searchText={searchText}
+        onSearchTextChange={setSearchText}
+        searchBarPlaceholder="Search cleanup candidates"
+        searchBarAccessory={
+          <Grid.Dropdown
+            tooltip="Filter by risk"
+            value={riskFilter}
+            onChange={(value) => setRiskFilter(value as "all" | RiskLevel)}
+          >
+            <Grid.Dropdown.Item title="All Risk Levels" value="all" />
+            <Grid.Dropdown.Item title="Safe" value="safe" />
+            <Grid.Dropdown.Item title="Review" value="review" />
+            <Grid.Dropdown.Item title="High Risk" value="high" />
+          </Grid.Dropdown>
+        }
+      >
+        <Grid.EmptyView
+          icon={Icon.HardDrive}
+          title={emptyTitle}
+          description={emptyDescription}
+          actions={emptyActions}
+        />
+        {[...sections].map(([section, items]) => (
+          <Grid.Section key={section} title={section} subtitle={`${items.length} item${items.length === 1 ? "" : "s"}`}>
+            {items.map((candidate) => (
+              <Grid.Item
+                key={candidate.id}
+                id={candidate.id}
+                title={candidate.title}
+                subtitle={`${formatBytes(candidate.bytes)} · ${riskLabel(candidate.risk)}`}
+                content={iconFor(candidate)}
+                keywords={[candidate.providerId, candidate.subtitle, riskLabel(candidate.risk)]}
+                accessory={
+                  selected.has(candidate.id) ? { icon: Icon.CheckCircle, tooltip: "Selected for cleanup" } : undefined
+                }
+                actions={candidateActions(candidate)}
+              />
+            ))}
+          </Grid.Section>
+        ))}
+        {issues.length > 0 ? (
+          <Grid.Section title="Scan Warnings" subtitle={String(issues.length)}>
+            {issues.map((issue, index) => (
+              <Grid.Item
+                key={`${issue.providerId}:${index}`}
+                title={issue.providerId}
+                subtitle={issue.message}
+                content={{ source: Icon.Warning, tintColor: Color.Orange }}
+                actions={<ActionPanel>{viewAction}</ActionPanel>}
+              />
+            ))}
+          </Grid.Section>
+        ) : null}
+        {protectedItems.length > 0 ? (
+          <Grid.Section title="Protected Runtimes" subtitle={String(protectedItems.length)}>
+            {protectedItems.map((item) => (
+              <Grid.Item
+                key={item.id}
+                title={item.title}
+                subtitle={item.reason}
+                content={{ source: Icon.Shield, tintColor: Color.Green }}
+                actions={
+                  <ActionPanel>
+                    {item.path ? <Action.ShowInFinder path={item.path} /> : null}
+                    {viewAction}
+                  </ActionPanel>
+                }
+              />
+            ))}
+          </Grid.Section>
+        ) : null}
+      </Grid>
+    );
+  }
+
   return (
     <List
       isLoading={isLoading || isCleaning}
-      isShowingDetail
+      navigationTitle={navigationTitle}
+      filtering={true}
+      searchText={searchText}
+      onSearchTextChange={setSearchText}
       searchBarPlaceholder="Search cleanup candidates"
       searchBarAccessory={
         <List.Dropdown
@@ -321,33 +524,7 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
         </List.Dropdown>
       }
     >
-      <List.EmptyView
-        icon={Icon.HardDrive}
-        title={isLoading ? "Scanning developer data…" : "Nothing to clean"}
-        description={
-          issues.length > 0
-            ? issues.map((issue) => issue.message).join("\n")
-            : "Refresh the scan or configure another project root."
-        }
-        actions={
-          <ActionPanel>
-            {isCleaning ? (
-              <Action title="Cancel Cleanup" icon={Icon.Stop} onAction={cancelCleanup} />
-            ) : (
-              <Action title="Refresh Scan" icon={Icon.ArrowClockwise} onAction={refresh} />
-            )}
-            {isLoading && !isCleaning ? <Action title="Cancel Scan" icon={Icon.Stop} onAction={cancelScan} /> : null}
-            {!isCleaning ? (
-              <Action.Push
-                title="Configure Project Roots"
-                icon={Icon.Gear}
-                target={<ProjectRootsForm initialRoots={roots} onSave={setRoots} />}
-              />
-            ) : null}
-            <Action.Push title="View Cleanup History" icon={Icon.Clock} target={<CleanupHistory />} />
-          </ActionPanel>
-        }
-      />
+      <List.EmptyView icon={Icon.HardDrive} title={emptyTitle} description={emptyDescription} actions={emptyActions} />
       {[...sections].map(([section, items]) => (
         <List.Section key={section} title={section} subtitle={`${items.length} item${items.length === 1 ? "" : "s"}`}>
           {items.map((candidate) => {
@@ -355,37 +532,20 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
             return (
               <List.Item
                 key={candidate.id}
+                id={candidate.id}
                 title={candidate.title}
                 subtitle={formatAge(candidate.modifiedAt)}
                 icon={iconFor(candidate)}
+                keywords={[candidate.providerId, candidate.subtitle, riskLabel(candidate.risk)]}
                 accessories={[
                   { text: formatBytes(candidate.bytes) },
+                  { tag: { value: riskLabel(candidate.risk), color: riskColor(candidate.risk) } },
                   {
                     icon: isSelected ? Icon.CheckCircle : Icon.Circle,
                     tooltip: isSelected ? "Selected" : "Not selected",
                   },
                 ]}
-                detail={<List.Item.Detail markdown={candidateMarkdown(candidate)} />}
-                actions={
-                  <CandidateActions
-                    candidate={candidate}
-                    isSelected={isSelected}
-                    toggle={() => toggle(candidate.id)}
-                    cleanSelection={cleanSelection}
-                    refresh={refresh}
-                    isLoading={isLoading}
-                    cancelScan={cancelScan}
-                    selectSafe={selectSafe}
-                    selectLarge={selectLarge}
-                    clearSelection={clearSelection}
-                    roots={roots}
-                    configure={setRoots}
-                    isCleaning={isCleaning}
-                    cancelCleanup={cancelCleanup}
-                    cycleSort={cycleSort}
-                    sortMode={sortMode}
-                  />
-                }
+                actions={candidateActions(candidate)}
               />
             );
           })}
@@ -399,6 +559,7 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
               title={issue.providerId}
               subtitle={issue.message}
               icon={{ source: Icon.Warning, tintColor: Color.Orange }}
+              actions={<ActionPanel>{viewAction}</ActionPanel>}
             />
           ))}
         </List.Section>
@@ -416,8 +577,11 @@ function Dashboard({ roots, setRoots }: { roots: string[]; setRoots: (roots: str
                 item.path ? (
                   <ActionPanel>
                     <Action.ShowInFinder path={item.path} />
+                    {viewAction}
                   </ActionPanel>
-                ) : undefined
+                ) : (
+                  <ActionPanel>{viewAction}</ActionPanel>
+                )
               }
             />
           ))}
