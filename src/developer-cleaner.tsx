@@ -172,7 +172,7 @@ function Dashboard({
   const [protectedItems, setProtectedItems] = useState<ProtectedItem[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const selectionTouches = useRef<SelectionTouches>(emptySelectionTouches());
-  const latestScan = useRef<LatestScan>(undefined);
+  const latestScan = useRef<LatestScan>({ state: "scanning" });
   const [excludedItems, setExcludedItems] = useState(initialExcludedItems);
   const excludedItemsRef = useRef(initialExcludedItems);
   const [isLoading, setIsLoading] = useState(true);
@@ -202,7 +202,7 @@ function Dashboard({
     setProtectedItems([]);
     setSelected(new Set());
     selectionTouches.current = emptySelectionTouches();
-    latestScan.current = undefined;
+    latestScan.current = { state: "scanning" };
     scanAll({ ...context, signal: controller.signal }, (partial) => {
       if (!active) return;
       setCandidates(partial.candidates);
@@ -214,11 +214,12 @@ function Dashboard({
         setCandidates(result.candidates);
         setIssues(result.issues);
         setProtectedItems(result.protectedItems ?? []);
-        latestScan.current = result.candidates;
+        latestScan.current = { state: "complete", candidates: result.candidates };
         const keptIds = new Set(excludedItemsRef.current.map((item) => item.id));
         setSelected((current) => mergeScanSelection(current, result.candidates, keptIds, selectionTouches.current));
       })
       .catch(async (error) => {
+        if (active) latestScan.current = { state: "unavailable" };
         if (active && !isAbortError(error))
           await showToast({ style: Toast.Style.Failure, title: "Scan failed", message: (error as Error).message });
       })
@@ -352,7 +353,7 @@ function Dashboard({
       const run = await recordCleanupRun(targets, results, startedAt, new Date());
       const failedIds = new Set(failures.map((failure) => failure.candidateId));
       const failedTargets = targets.filter((candidate) => failedIds.has(candidate.id));
-      latestScan.current = undefined;
+      latestScan.current = { state: "scanning" };
       push(
         <CleanupReport run={run} onRetry={failedTargets.length > 0 ? () => retryFailed(failedTargets) : undefined} />,
       );
@@ -369,6 +370,15 @@ function Dashboard({
       await showToast({
         style: Toast.Style.Failure,
         title: "Scan still refreshing",
+        message: "Retry after the scan finishes so changed items are revalidated",
+      });
+      return;
+    }
+    if (retry.status === "unavailable") {
+      refresh();
+      await showToast({
+        style: Toast.Style.Success,
+        title: "Scan restarted",
         message: "Retry after the scan finishes so changed items are revalidated",
       });
       return;

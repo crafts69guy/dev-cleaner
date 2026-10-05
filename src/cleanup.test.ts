@@ -353,20 +353,31 @@ describe("retry targets", () => {
   const stale: CleanupCandidate = { ...fresh, modifiedAt: new Date("2026-01-01T00:00:00Z") };
 
   it("waits for the refresh scan before retrying", () => {
-    expect(freshRetryTargets([stale], undefined)).toEqual({ status: "scanning" });
+    expect(freshRetryTargets([stale], { state: "scanning" })).toEqual({ status: "scanning" });
+  });
+
+  it("asks for a new scan when the refresh failed or was cancelled", () => {
+    expect(freshRetryTargets([stale], { state: "unavailable" })).toEqual({ status: "unavailable" });
   });
 
   it("uses the rescanned candidate for failed items", () => {
-    expect(freshRetryTargets([stale], [fresh])).toEqual({ status: "ready", candidates: [fresh], missing: [] });
+    expect(freshRetryTargets([stale], { state: "complete", candidates: [fresh] })).toEqual({
+      status: "ready",
+      candidates: [fresh],
+      missing: [],
+    });
   });
 
   it("reports failed items that no longer appear in the scan", () => {
     const gone: CleanupCandidate = { ...stale, id: "project:dist", title: "dist" };
-    expect(freshRetryTargets([stale, gone], [fresh])).toEqual({
+    expect(freshRetryTargets([stale, gone], { state: "complete", candidates: [fresh] })).toEqual({
       status: "ready",
       candidates: [fresh],
       missing: [gone],
     });
-    expect(freshRetryTargets([gone], [fresh])).toEqual({ status: "missing", missing: [gone] });
+    expect(freshRetryTargets([gone], { state: "complete", candidates: [fresh] })).toEqual({
+      status: "missing",
+      missing: [gone],
+    });
   });
 });
