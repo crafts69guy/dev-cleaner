@@ -8,7 +8,7 @@ const { trash } = vi.hoisted(() => ({
 }));
 vi.mock("@raycast/api", () => ({ trash }));
 
-import { cleanCandidate, cleanCandidates } from "./cleanup";
+import { cleanCandidate, cleanCandidates, freshRetryTargets } from "./cleanup";
 import type { CleanupCandidate } from "./types";
 
 const temporaryDirectories: string[] = [];
@@ -333,5 +333,33 @@ describe("cleanup orchestration", () => {
     await expect(
       cleanCandidate(failed, { homeDirectory: os.tmpdir(), projectRoots: [], signal: controller.signal }),
     ).resolves.toMatchObject({ status: "cancelled" });
+  });
+});
+
+describe("retry targets", () => {
+  const fresh: CleanupCandidate = {
+    id: "project:build",
+    providerId: "projects",
+    section: "Project Artifacts",
+    title: "build",
+    subtitle: "/tmp/build",
+    description: "test",
+    cleanupPolicy: "trash",
+    risk: "review",
+    selectedByDefault: false,
+    path: "/tmp/build",
+    modifiedAt: new Date("2026-02-01T00:00:00Z"),
+  };
+
+  it("waits for the refresh scan before retrying", () => {
+    expect(freshRetryTargets(new Set([fresh.id]), undefined)).toEqual({ status: "scanning" });
+  });
+
+  it("uses the rescanned candidate for failed items", () => {
+    expect(freshRetryTargets(new Set([fresh.id]), [fresh])).toEqual({ status: "ready", candidates: [fresh] });
+  });
+
+  it("reports failed items that no longer appear in the scan", () => {
+    expect(freshRetryTargets(new Set([fresh.id]), [])).toEqual({ status: "missing" });
   });
 });

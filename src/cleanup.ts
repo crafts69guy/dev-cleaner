@@ -161,3 +161,19 @@ export async function cleanCandidates(
   }
   return results;
 }
+
+/** The most recent scan's candidates, or `undefined` while a scan is running or after it was cancelled. */
+export type LatestScan = readonly CleanupCandidate[] | undefined;
+
+export type RetryTargets =
+  { status: "scanning" } | { status: "missing" } | { status: "ready"; candidates: CleanupCandidate[] };
+
+/**
+ * Picks failed items from the latest completed scan rather than reusing the original candidates, whose recorded
+ * modification time would make an item that changed after scanning fail revalidation again.
+ */
+export function freshRetryTargets(failedIds: ReadonlySet<string>, latestScan: LatestScan): RetryTargets {
+  if (!latestScan) return { status: "scanning" };
+  const candidates = latestScan.filter((candidate) => failedIds.has(candidate.id));
+  return candidates.length > 0 ? { status: "ready", candidates } : { status: "missing" };
+}
