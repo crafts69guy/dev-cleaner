@@ -287,7 +287,7 @@ function Dashboard({
     push(<ExcludedItems initialItems={excludedItemsRef.current} onAllow={allowExcludedItem} />);
   }
 
-  async function runCleanup(targets: CleanupCandidate[]) {
+  async function runCleanup(targets: CleanupCandidate[], notice?: string) {
     if (cleanupController.current) return;
     let savedKeptItems: ExcludedItem[];
     try {
@@ -316,7 +316,7 @@ function Dashboard({
     const currentFootprint = targets.reduce((sum, candidate) => sum + (candidate.bytes ?? 0), 0);
     const confirmed = await confirmAlert({
       title: `Clean ${targets.length} selected item${targets.length === 1 ? "" : "s"}?`,
-      message: `The known selected footprint is ${formatBytes(currentFootprint)}. ${formatBytes(trashBytes)} will move to Trash and only frees disk space after Trash is emptied. ${permanent} native cleanup command${permanent === 1 ? " is" : "s are"} permanent and will determine its own reclaimable amount.`,
+      message: `${notice ? `${notice} ` : ""}The known selected footprint is ${formatBytes(currentFootprint)}. ${formatBytes(trashBytes)} will move to Trash and only frees disk space after Trash is emptied. ${permanent} native cleanup command${permanent === 1 ? " is" : "s are"} permanent and will determine its own reclaimable amount.`,
       primaryAction: { title: "Clean Selected", style: Alert.ActionStyle.Destructive },
     });
     if (!confirmed) return;
@@ -351,8 +351,11 @@ function Dashboard({
             : undefined;
       const run = await recordCleanupRun(targets, results, startedAt, new Date());
       const failedIds = new Set(failures.map((failure) => failure.candidateId));
+      const failedTargets = targets.filter((candidate) => failedIds.has(candidate.id));
       latestScan.current = undefined;
-      push(<CleanupReport run={run} onRetry={failedIds.size > 0 ? () => retryFailed(failedIds) : undefined} />);
+      push(
+        <CleanupReport run={run} onRetry={failedTargets.length > 0 ? () => retryFailed(failedTargets) : undefined} />,
+      );
       refresh();
     } finally {
       cleanupController.current = undefined;
@@ -360,8 +363,8 @@ function Dashboard({
     }
   }
 
-  async function retryFailed(failedIds: ReadonlySet<string>) {
-    const retry = freshRetryTargets(failedIds, latestScan.current);
+  async function retryFailed(failedTargets: CleanupCandidate[]) {
+    const retry = freshRetryTargets(failedTargets, latestScan.current);
     if (retry.status === "scanning") {
       await showToast({
         style: Toast.Style.Failure,
@@ -370,11 +373,22 @@ function Dashboard({
       });
       return;
     }
+    const missingTitles = retry.missing.map((candidate) => candidate.title).join(", ");
     if (retry.status === "missing") {
-      await showToast({ style: Toast.Style.Failure, title: "Failed items no longer found in the latest scan" });
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Failed items no longer found in the latest scan",
+        message: missingTitles,
+      });
       return;
     }
-    await runCleanup(retry.candidates);
+    const skipped = retry.missing.length;
+    await runCleanup(
+      retry.candidates,
+      skipped > 0
+        ? `${skipped} failed item${skipped === 1 ? " is" : "s are"} no longer in the latest scan and will be skipped: ${missingTitles}.`
+        : undefined,
+    );
   }
 
   async function cleanSelection() {

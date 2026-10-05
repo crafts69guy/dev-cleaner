@@ -350,16 +350,23 @@ describe("retry targets", () => {
     path: "/tmp/build",
     modifiedAt: new Date("2026-02-01T00:00:00Z"),
   };
+  const stale: CleanupCandidate = { ...fresh, modifiedAt: new Date("2026-01-01T00:00:00Z") };
 
   it("waits for the refresh scan before retrying", () => {
-    expect(freshRetryTargets(new Set([fresh.id]), undefined)).toEqual({ status: "scanning" });
+    expect(freshRetryTargets([stale], undefined)).toEqual({ status: "scanning" });
   });
 
   it("uses the rescanned candidate for failed items", () => {
-    expect(freshRetryTargets(new Set([fresh.id]), [fresh])).toEqual({ status: "ready", candidates: [fresh] });
+    expect(freshRetryTargets([stale], [fresh])).toEqual({ status: "ready", candidates: [fresh], missing: [] });
   });
 
   it("reports failed items that no longer appear in the scan", () => {
-    expect(freshRetryTargets(new Set([fresh.id]), [])).toEqual({ status: "missing" });
+    const gone: CleanupCandidate = { ...stale, id: "project:dist", title: "dist" };
+    expect(freshRetryTargets([stale, gone], [fresh])).toEqual({
+      status: "ready",
+      candidates: [fresh],
+      missing: [gone],
+    });
+    expect(freshRetryTargets([gone], [fresh])).toEqual({ status: "missing", missing: [gone] });
   });
 });
