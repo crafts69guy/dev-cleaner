@@ -88,6 +88,7 @@ function CandidateActions({
         <Action
           title={isSelected ? "Unselect Item" : "Select Item"}
           icon={isSelected ? Icon.Circle : Icon.CheckCircle}
+          shortcut={isSelected ? { modifiers: ["ctrl"], key: "h" } : { modifiers: ["ctrl"], key: "l" }}
           onAction={toggle}
         />
       )}

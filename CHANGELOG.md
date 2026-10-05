@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Add ⌃L / ⌃H shortcuts to select and unselect the highlighted cleanup item.
 - Show provider brand icons from Simple Icons with light and dark variants, falling back to generic icons for Codex and project artifacts.
 - Redesign list views as a split layout with icon-only row accessories and a metadata side panel across candidates, history, reports, and kept items.
 - Add persistent per-item cleanup exclusions with a management view and execution-time protection.
