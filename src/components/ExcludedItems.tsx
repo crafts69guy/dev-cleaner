@@ -3,7 +3,7 @@ import { useState } from "react";
 
 import { formatAge } from "../lib/format";
 import type { ExcludedItem } from "../types";
-import { fileLink } from "./CandidateDetail";
+import { fileLink, providerIcon } from "./CandidateDetail";
 
 function KeptItemDetail({ item }: { item: ExcludedItem }) {
   const addedAt = new Date(item.addedAt);
@@ -16,7 +16,11 @@ function KeptItemDetail({ item }: { item: ExcludedItem }) {
         <List.Item.Detail.Metadata>
           <List.Item.Detail.Metadata.Label title="Details" text={item.subtitle} />
           <List.Item.Detail.Metadata.TagList title="Source">
-            <List.Item.Detail.Metadata.TagList.Item text={item.providerId} color={Color.Green} />
+            <List.Item.Detail.Metadata.TagList.Item
+              text={item.providerId}
+              icon={providerIcon(item.providerId, Icon.Box)}
+              color={Color.Green}
+            />
           </List.Item.Detail.Metadata.TagList>
           <List.Item.Detail.Metadata.Label title="Kept Since" text={keptSince} />
           {item.path ? (
@@ -55,7 +59,7 @@ export function ExcludedItems({
         <List.Item
           key={item.id}
           title={item.title}
-          icon={{ source: Icon.Shield, tintColor: Color.Green }}
+          icon={providerIcon(item.providerId, { source: Icon.Shield, tintColor: Color.Green })}
           accessories={[{ icon: Icon.Lock, tooltip: "Kept out of cleanup" }]}
           keywords={[item.id, item.providerId, item.subtitle]}
           detail={<KeptItemDetail item={item} />}

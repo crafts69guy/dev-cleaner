@@ -1,12 +1,18 @@
-import { Action, ActionPanel, Color, Detail, Icon, List } from "@raycast/api";
+import { Action, ActionPanel, Color, Detail, Icon, Image, List } from "@raycast/api";
 import { pathToFileURL } from "node:url";
 
+import { providerBrandSource } from "../lib/brand-icons";
 import { formatAge, formatBytes, formatCommand } from "../lib/format";
-import type { CleanupCandidate, CleanupPolicy, RiskLevel } from "../types";
+import type { CleanupCandidate, CleanupPolicy, ProviderId, RiskLevel } from "../types";
 
-export function iconFor(candidate: CleanupCandidate) {
+export function providerIcon(providerId: ProviderId, fallback: Image.ImageLike): Image.ImageLike {
+  const brand = providerBrandSource(providerId);
+  return brand ? { source: brand } : fallback;
+}
+
+export function iconFor(candidate: CleanupCandidate): Image.ImageLike {
   const source = candidate.cleanupPolicy === "command" ? Icon.Terminal : Icon.Folder;
-  return { source, tintColor: riskColor(candidate.risk) };
+  return providerIcon(candidate.providerId, { source, tintColor: riskColor(candidate.risk) });
 }
 
 export function riskLabel(risk: RiskLevel): string {
@@ -46,7 +52,11 @@ export function CandidateDetail({ candidate }: { candidate: CleanupCandidate }) 
             title="Cleanup Method"
             text={candidate.cleanupPolicy === "trash" ? "Move to Trash" : "Permanent native command"}
           />
-          <Detail.Metadata.Label title="Source" text={candidate.providerId} />
+          <Detail.Metadata.Label
+            title="Source"
+            text={candidate.providerId}
+            icon={providerIcon(candidate.providerId, Icon.Box)}
+          />
           {candidate.modifiedAt ? (
             <Detail.Metadata.Label title="Last Modified" text={candidate.modifiedAt.toLocaleString()} />
           ) : null}
@@ -83,7 +93,11 @@ export function CandidateListDetail({ candidate, isSelected }: { candidate: Clea
               color={candidate.cleanupPolicy === "command" ? Color.Purple : Color.Blue}
             />
           </List.Item.Detail.Metadata.TagList>
-          <List.Item.Detail.Metadata.Label title="Source" text={candidate.providerId} />
+          <List.Item.Detail.Metadata.Label
+            title="Source"
+            text={candidate.providerId}
+            icon={providerIcon(candidate.providerId, Icon.Box)}
+          />
           {candidate.modifiedAt ? (
             <List.Item.Detail.Metadata.Label
               title="Last Modified"

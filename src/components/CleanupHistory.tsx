@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { formatBytes, formatDuration } from "../lib/format";
 import { readCleanupHistory } from "../storage";
 import type { CleanupHistoryItem, CleanupRun } from "../types";
-import { cleanupMethodLabel } from "./CandidateDetail";
+import { cleanupMethodLabel, providerIcon } from "./CandidateDetail";
 
 type CleanupStatus = CleanupHistoryItem["status"];
 
@@ -63,7 +63,11 @@ function ResultDetail({ item }: { item: CleanupHistoryItem }) {
               color={statusColor(item.status)}
             />
           </List.Item.Detail.Metadata.TagList>
-          <List.Item.Detail.Metadata.Label title="Source" text={item.providerId} />
+          <List.Item.Detail.Metadata.Label
+            title="Source"
+            text={item.providerId}
+            icon={providerIcon(item.providerId, Icon.Box)}
+          />
           <List.Item.Detail.Metadata.Label title="Cleanup" text={cleanupMethodLabel(item.cleanupPolicy)} />
           <List.Item.Detail.Metadata.Label title="Footprint" text={formatBytes(item.bytes)} />
           <List.Item.Detail.Metadata.Label title="Reclaimed" text={formatBytes(item.bytesReclaimed)} />

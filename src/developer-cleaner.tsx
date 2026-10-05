@@ -22,6 +22,7 @@ import {
   CandidateListDetail,
   fileLink,
   iconFor,
+  providerIcon,
   riskColor,
   riskLabel,
 } from "./components/CandidateDetail";
@@ -567,7 +568,7 @@ function Dashboard({
                 key={item.id}
                 title={item.title}
                 subtitle={item.reason}
-                content={{ source: Icon.Shield, tintColor: Color.Green }}
+                content={providerIcon(item.providerId, { source: Icon.Shield, tintColor: Color.Green })}
                 actions={
                   <ActionPanel>
                     {item.path ? <Action.ShowInFinder path={item.path} /> : null}
@@ -673,7 +674,7 @@ function Dashboard({
               key={item.id}
               title={item.title}
               keywords={[item.providerId, item.reason]}
-              icon={{ source: Icon.Shield, tintColor: Color.Green }}
+              icon={providerIcon(item.providerId, { source: Icon.Shield, tintColor: Color.Green })}
               accessories={[{ icon: Icon.Lock, tooltip: "Protected from cleanup" }]}
               detail={
                 <List.Item.Detail
@@ -681,7 +682,11 @@ function Dashboard({
                     <List.Item.Detail.Metadata>
                       <List.Item.Detail.Metadata.Label title="Reason" text={item.reason} />
                       <List.Item.Detail.Metadata.TagList title="Source">
-                        <List.Item.Detail.Metadata.TagList.Item text={item.providerId} color={Color.Green} />
+                        <List.Item.Detail.Metadata.TagList.Item
+                          text={item.providerId}
+                          icon={providerIcon(item.providerId, Icon.Box)}
+                          color={Color.Green}
+                        />
                       </List.Item.Detail.Metadata.TagList>
                       {item.path ? (
                         <>
