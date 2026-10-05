@@ -25,6 +25,28 @@ export async function normalizeProjectRoots(roots: string[]): Promise<string[]> 
   return unique.filter((root, index) => !unique.slice(0, index).some((parent) => isPathInside(root, parent)));
 }
 
+export interface ProjectRootWarnings {
+  /** A root is the filesystem root, which is never scanned. */
+  filesystemRoot: boolean;
+  /** A root is the home directory or one of its ancestors, so the whole home directory would be scanned. */
+  coversHome: boolean;
+}
+
+/**
+ * Checks normalized roots against the home directory canonicalized the same way, so a symlinked or firmlinked home
+ * path still triggers the warning.
+ */
+export async function projectRootWarnings(
+  normalizedRoots: string[],
+  homeDirectory: string,
+): Promise<ProjectRootWarnings> {
+  const [canonicalHome] = await normalizeProjectRoots([homeDirectory]);
+  return {
+    filesystemRoot: normalizedRoots.some((root) => root === path.parse(root).root),
+    coversHome: normalizedRoots.some((root) => root === canonicalHome || isPathInside(canonicalHome, root)),
+  };
+}
+
 export async function readProjectRoots(): Promise<string[] | undefined> {
   try {
     const value = await LocalStorage.getItem<string>(PROJECT_ROOTS_KEY);

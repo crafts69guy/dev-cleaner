@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { values } = vi.hoisted(() => ({ values: new Map<string, string>() }));
@@ -12,6 +15,7 @@ vi.mock("@raycast/api", () => ({
 
 import {
   normalizeProjectRoots,
+  projectRootWarnings,
   readCleanupHistory,
   readExcludedItems,
   readProjectRoots,
@@ -40,6 +44,34 @@ describe("local storage", () => {
     await expect(normalizeProjectRoots(["/projects/app", "/projects", "/projects/app"])).resolves.toEqual([
       "/projects",
     ]);
+  });
+
+  it("warns about the home directory when its path goes through a symlink", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "dev-cleaner-home-link-"));
+    try {
+      const realHome = path.join(directory, "real-home");
+      const linkedHome = path.join(directory, "linked-home");
+      await mkdir(path.join(realHome, "projects"), { recursive: true });
+      await symlink(realHome, linkedHome);
+
+      const homeRoots = await normalizeProjectRoots([linkedHome]);
+      expect(homeRoots).toEqual([await realpath(realHome)]);
+      await expect(projectRootWarnings(homeRoots, linkedHome)).resolves.toEqual({
+        filesystemRoot: false,
+        coversHome: true,
+      });
+      await expect(projectRootWarnings([await realpath(directory)], linkedHome)).resolves.toMatchObject({
+        coversHome: true,
+      });
+      const projectRoots = await normalizeProjectRoots([path.join(linkedHome, "projects")]);
+      await expect(projectRootWarnings(projectRoots, linkedHome)).resolves.toEqual({
+        filesystemRoot: false,
+        coversHome: false,
+      });
+      await expect(projectRootWarnings(["/"], linkedHome)).resolves.toMatchObject({ filesystemRoot: true });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("persists exact kept items and refuses malformed records", async () => {
