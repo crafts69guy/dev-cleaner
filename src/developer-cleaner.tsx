@@ -499,7 +499,8 @@ function Dashboard({
       <Grid
         isLoading={isLoading || isCleaning}
         navigationTitle={navigationTitle}
-        columns={3}
+        columns={5}
+        inset={Grid.Inset.Medium}
         filtering={true}
         searchText={searchText}
         onSearchTextChange={setSearchText}
