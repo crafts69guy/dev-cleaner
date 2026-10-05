@@ -32,6 +32,7 @@ import { ProjectRootsForm } from "./components/ProjectRootsForm";
 import { isAbortError } from "./lib/async";
 import { formatBytes } from "./lib/format";
 import { scanAll } from "./providers";
+import { emptySelectionTouches, mergeScanSelection, type SelectionTouches } from "./selection";
 import { readExcludedItems, readProjectRoots, recordCleanupRun, writeExcludedItems } from "./storage";
 import type { CleanupCandidate, ExcludedItem, ProtectedItem, RiskLevel, ScanIssue } from "./types";
 
@@ -170,6 +171,7 @@ function Dashboard({
   const [issues, setIssues] = useState<ScanIssue[]>([]);
   const [protectedItems, setProtectedItems] = useState<ProtectedItem[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const selectionTouches = useRef<SelectionTouches>(emptySelectionTouches());
   const [excludedItems, setExcludedItems] = useState(initialExcludedItems);
   const excludedItemsRef = useRef(initialExcludedItems);
   const [isLoading, setIsLoading] = useState(true);
@@ -198,6 +200,7 @@ function Dashboard({
     setIssues([]);
     setProtectedItems([]);
     setSelected(new Set());
+    selectionTouches.current = emptySelectionTouches();
     scanAll({ ...context, signal: controller.signal }, (partial) => {
       if (!active) return;
       setCandidates(partial.candidates);
@@ -210,13 +213,7 @@ function Dashboard({
         setIssues(result.issues);
         setProtectedItems(result.protectedItems ?? []);
         const keptIds = new Set(excludedItemsRef.current.map((item) => item.id));
-        setSelected(
-          new Set(
-            result.candidates
-              .filter((candidate) => candidate.selectedByDefault && !keptIds.has(candidate.id))
-              .map(({ id }) => id),
-          ),
-        );
+        setSelected((current) => mergeScanSelection(current, result.candidates, keptIds, selectionTouches.current));
       })
       .catch(async (error) => {
         if (active && !isAbortError(error))
@@ -381,6 +378,7 @@ function Dashboard({
   }, [candidates, excludedIds, riskFilter, sortMode]);
 
   function toggle(id: string) {
+    selectionTouches.current.ids.add(id);
     setSelected((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
@@ -389,32 +387,33 @@ function Dashboard({
     });
   }
 
-  const selectSafe = useCallback(
-    () =>
-      setSelected(
-        new Set(
-          candidates
-            .filter((candidate) => candidate.risk === "safe" && !excludedIds.has(candidate.id))
-            .map((candidate) => candidate.id),
-        ),
+  const selectSafe = useCallback(() => {
+    selectionTouches.current.all = true;
+    setSelected(
+      new Set(
+        candidates
+          .filter((candidate) => candidate.risk === "safe" && !excludedIds.has(candidate.id))
+          .map((candidate) => candidate.id),
       ),
-    [candidates, excludedIds],
-  );
-  const clearSelection = useCallback(() => setSelected(new Set()), []);
-  const selectLarge = useCallback(
-    () =>
-      setSelected(
-        new Set(
-          candidates
-            .filter(
-              (candidate) =>
-                !excludedIds.has(candidate.id) && candidate.risk !== "high" && (candidate.bytes ?? 0) >= 1024 ** 3,
-            )
-            .map((candidate) => candidate.id),
-        ),
+    );
+  }, [candidates, excludedIds]);
+  const clearSelection = useCallback(() => {
+    selectionTouches.current.all = true;
+    setSelected(new Set());
+  }, []);
+  const selectLarge = useCallback(() => {
+    selectionTouches.current.all = true;
+    setSelected(
+      new Set(
+        candidates
+          .filter(
+            (candidate) =>
+              !excludedIds.has(candidate.id) && candidate.risk !== "high" && (candidate.bytes ?? 0) >= 1024 ** 3,
+          )
+          .map((candidate) => candidate.id),
       ),
-    [candidates, excludedIds],
-  );
+    );
+  }, [candidates, excludedIds]);
   const cycleSort = useCallback(
     () => setSortMode((current) => (current === "size" ? "age" : current === "age" ? "name" : "size")),
     [],
