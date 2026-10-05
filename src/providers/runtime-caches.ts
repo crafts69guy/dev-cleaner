@@ -46,6 +46,20 @@ interface RuntimeScanOutput {
   protectedItems: ProtectedItem[];
 }
 
+/**
+ * Resolves the fnm default alias to its version directory name. The alias may point at the version directory itself
+ * or at its `installation` child depending on the fnm release, so the name is taken relative to `node-versions`.
+ */
+export async function fnmDefaultVersion(homeDirectory: string): Promise<string | undefined> {
+  const defaultAlias = path.join(homeDirectory, ".local/share/fnm/aliases/default");
+  const versionsPath = path.join(homeDirectory, ".local/share/fnm/node-versions");
+  if (!(await pathExists(defaultAlias)) || !(await pathExists(versionsPath))) return undefined;
+  const versionsRoot = await realpath(versionsPath);
+  const relative = path.relative(versionsRoot, await realpath(defaultAlias));
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return undefined;
+  return relative.split(path.sep)[0];
+}
+
 async function scanFnmVersions(context: ScanContext, pins: RuntimePins): Promise<RuntimeScanOutput> {
   const versionsRoot = path.join(context.homeDirectory, ".local/share/fnm/node-versions");
   if (!(await pathExists(versionsRoot))) return { candidates: [], protectedItems: [] };
@@ -59,12 +73,7 @@ async function scanFnmVersions(context: ScanContext, pins: RuntimePins): Promise
   }
   versions.sort((left, right) => compareVersionNames(right.name, left.name));
 
-  let currentName: string | undefined;
-  const defaultAlias = path.join(context.homeDirectory, ".local/share/fnm/aliases/default");
-  if (await pathExists(defaultAlias)) {
-    const target = await realpath(defaultAlias);
-    currentName = path.basename(path.dirname(target));
-  }
+  const currentName = await fnmDefaultVersion(context.homeDirectory);
   const protectedNames = new Set<string>();
   const protectionReasons = new Map<string, string>();
   if (currentName) protectedNames.add(currentName);
