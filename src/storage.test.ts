@@ -32,7 +32,11 @@ describe("local storage", () => {
     await writeProjectRoots(["/one", "/one", "/two"]);
     await expect(readProjectRoots()).resolves.toEqual(["/one", "/two"]);
     values.set("project-roots", "not-json");
-    await expect(readProjectRoots()).resolves.toBeUndefined();
+    await expect(readProjectRoots()).rejects.toThrow("Saved project roots are invalid");
+    values.set("project-roots", JSON.stringify([1, "/one"]));
+    await expect(readProjectRoots()).rejects.toThrow("Saved project roots are invalid");
+    values.set("project-roots", "[]");
+    await expect(readProjectRoots()).resolves.toEqual([]);
   });
 
   it("treats missing saved data as unset", async () => {

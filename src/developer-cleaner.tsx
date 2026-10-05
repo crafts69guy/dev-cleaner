@@ -744,25 +744,41 @@ function Dashboard({
   );
 }
 
+class LoadFailure extends Error {
+  constructor(
+    readonly source: "roots" | "kept",
+    cause: unknown,
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+  }
+}
+
+function failLoading(source: LoadFailure["source"]): (error: unknown) => never {
+  return (error) => {
+    throw new LoadFailure(source, error);
+  };
+}
+
 export default function Command() {
   const [roots, setRoots] = useState<string[] | undefined>();
   const [initialExcludedItems, setInitialExcludedItems] = useState<ExcludedItem[]>([]);
   const [isReady, setIsReady] = useState(false);
-  const [loadError, setLoadError] = useState<string>();
+  const [loadError, setLoadError] = useState<LoadFailure>();
   const [loadVersion, setLoadVersion] = useState(0);
+  const reload = useCallback(() => setLoadVersion((version) => version + 1), []);
 
   useEffect(() => {
     let active = true;
     setIsReady(false);
     setLoadError(undefined);
-    Promise.all([readProjectRoots(), readExcludedItems()])
+    Promise.all([readProjectRoots().catch(failLoading("roots")), readExcludedItems().catch(failLoading("kept"))])
       .then(([storedRoots, storedExcludedItems]) => {
         if (!active) return;
         setRoots(storedRoots);
         setInitialExcludedItems(storedExcludedItems);
       })
       .catch((error) => {
-        if (active) setLoadError((error as Error).message);
+        if (active) setLoadError(error instanceof LoadFailure ? error : new LoadFailure("kept", error));
       })
       .finally(() => {
         if (active) setIsReady(true);
@@ -777,16 +793,23 @@ export default function Command() {
     return (
       <List>
         <List.EmptyView
-          icon={Icon.Shield}
-          title="Kept Items Unavailable"
-          description={`${loadError}. Cleanup is paused until these items can be loaded.`}
+          icon={loadError.source === "roots" ? Icon.Folder : Icon.Shield}
+          title={loadError.source === "roots" ? "Project Roots Unavailable" : "Kept Items Unavailable"}
+          description={
+            loadError.source === "roots"
+              ? `${loadError.message}. Retry loading, or reset them to choose project directories again.`
+              : `${loadError.message}. Cleanup is paused until these items can be loaded.`
+          }
           actions={
             <ActionPanel>
-              <Action
-                title="Retry Loading"
-                icon={Icon.ArrowClockwise}
-                onAction={() => setLoadVersion((version) => version + 1)}
-              />
+              <Action title="Retry Loading" icon={Icon.ArrowClockwise} onAction={reload} />
+              {loadError.source === "roots" ? (
+                <Action.Push
+                  title="Reset Project Roots"
+                  icon={Icon.Folder}
+                  target={<ProjectRootsForm onSave={reload} />}
+                />
+              ) : null}
             </ActionPanel>
           }
         />

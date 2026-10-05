@@ -47,17 +47,20 @@ export async function projectRootWarnings(
   };
 }
 
+/** Returns `undefined` only when no roots were saved yet; unreadable or invalid saved roots throw instead. */
 export async function readProjectRoots(): Promise<string[] | undefined> {
+  const value = await LocalStorage.getItem<string>(PROJECT_ROOTS_KEY);
+  if (value === undefined) return undefined;
+  let roots: unknown;
   try {
-    const value = await LocalStorage.getItem<string>(PROJECT_ROOTS_KEY);
-    if (!value) return undefined;
-    const roots: unknown = JSON.parse(value);
-    return Array.isArray(roots) && roots.every((root) => typeof root === "string")
-      ? await normalizeProjectRoots(roots)
-      : undefined;
+    roots = JSON.parse(value);
   } catch {
-    return undefined;
+    throw new Error("Saved project roots are invalid");
   }
+  if (!Array.isArray(roots) || !roots.every((root) => typeof root === "string")) {
+    throw new Error("Saved project roots are invalid");
+  }
+  return normalizeProjectRoots(roots);
 }
 
 export async function writeProjectRoots(roots: string[]): Promise<void> {
