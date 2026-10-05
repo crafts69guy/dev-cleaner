@@ -1,7 +1,12 @@
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../lib/command", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/command")>()),
+  resolveExecutable: (await import("../test-support/command")).resolveFromExtraPath,
+}));
 
 import { RuntimeCachesProvider } from "./runtime-caches";
 
@@ -82,12 +87,13 @@ describe("runtime and build cache provider", () => {
     temporaryDirectories.push(home);
     const bin = path.join(home, "bin");
     await mkdir(bin);
+    await executable(path.join(bin, "rustup"), "echo rustup unavailable >&2; exit 1");
     const cargo = path.join(home, ".cargo/registry");
     await mkdir(cargo, { recursive: true });
     await writeFile(path.join(cargo, "item"), "cache");
 
     const result = await new RuntimeCachesProvider().scan({ homeDirectory: home, projectRoots: [], extraPath: bin });
-    expect(result.issues).toEqual([]);
+    expect(result.issues).toEqual([{ providerId: "rustup", message: "rustup unavailable" }]);
     expect(result.candidates.some((candidate) => candidate.providerId === "cargo")).toBe(true);
   });
 
@@ -190,5 +196,15 @@ describe("runtime and build cache provider", () => {
       ]),
     );
     expect(result.candidates.map((candidate) => candidate.title)).toEqual(["Rust 1.80.0-aarch64-apple-darwin"]);
+  });
+
+  it("returns nothing when no runtimes, rustup, or caches exist", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "dev-cleaner-runtimes-empty-"));
+    temporaryDirectories.push(home);
+    await expect(new RuntimeCachesProvider().scan({ homeDirectory: home, projectRoots: [] })).resolves.toEqual({
+      candidates: [],
+      issues: [],
+      protectedItems: [],
+    });
   });
 });

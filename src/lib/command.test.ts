@@ -28,6 +28,23 @@ describe("command helpers", () => {
     expect(await resolveExecutable("does-not-exist-cleaner", { homeDirectory: home, extraPath: bin })).toBeUndefined();
   });
 
+  it("finds tools in fnm-managed Node installations, newest version first", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "dev-cleaner-command-fnm-"));
+    temporaryDirectories.push(home);
+    const versionsRoot = path.join(home, ".local/share/fnm/node-versions");
+    for (const version of ["v18.20.0", "v22.16.0"]) {
+      const bin = path.join(versionsRoot, version, "installation/bin");
+      await mkdir(bin, { recursive: true });
+      await writeFile(path.join(bin, "dev-cleaner-fnm-tool"), "#!/bin/sh\necho ok\n");
+      await chmod(path.join(bin, "dev-cleaner-fnm-tool"), 0o755);
+    }
+    await writeFile(path.join(versionsRoot, "not-a-version"), "file");
+
+    expect(await resolveExecutable("dev-cleaner-fnm-tool", { homeDirectory: home })).toBe(
+      path.join(versionsRoot, "v22.16.0/installation/bin/dev-cleaner-fnm-tool"),
+    );
+  });
+
   it("executes without a shell and captures output", async () => {
     const result = await runCommand({ executable: "/bin/echo", args: ["hello; not-a-command"] });
     expect(result.stdout.trim()).toBe("hello; not-a-command");

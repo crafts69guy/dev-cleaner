@@ -1,7 +1,12 @@
 import { chmod, mkdtemp, mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../lib/command", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/command")>()),
+  resolveExecutable: (await import("../test-support/command")).resolveFromExtraPath,
+}));
 
 import { NativeToolsProvider } from "./native-tools";
 
@@ -90,5 +95,14 @@ describe("native tools provider", () => {
       ]),
     );
     expect(result.candidates.some((candidate) => candidate.providerId === "pnpm")).toBe(false);
+  });
+
+  it("returns nothing when no tools or npx workspaces exist", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "dev-cleaner-native-empty-"));
+    temporaryDirectories.push(home);
+    await expect(new NativeToolsProvider().scan({ homeDirectory: home, projectRoots: [] })).resolves.toEqual({
+      candidates: [],
+      issues: [],
+    });
   });
 });
