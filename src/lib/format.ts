@@ -1,3 +1,5 @@
+import type { CommandSpec } from "../types";
+
 export function formatBytes(bytes?: number): string {
   if (bytes === undefined) return "Size unavailable";
   if (bytes === 0) return "0 B";
@@ -14,4 +16,16 @@ export function formatAge(date?: Date, now = new Date()): string | undefined {
   if (days === 0) return "today";
   if (days === 1) return "1 day ago";
   return `${days} days ago`;
+}
+
+export function formatDuration(start: string, end: string): string {
+  const totalSeconds = Math.max(0, Math.round((new Date(end).getTime() - new Date(start).getTime()) / 1000));
+  if (Number.isNaN(totalSeconds)) return "Unknown";
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
+export function formatCommand(command: CommandSpec): string {
+  return [command.executable, ...command.args].join(" ");
 }

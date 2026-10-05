@@ -3,7 +3,6 @@ import {
   ActionPanel,
   Alert,
   Color,
-  Detail,
   Grid,
   Icon,
   Keyboard,
@@ -18,66 +17,22 @@ import os from "node:os";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { cleanCandidates } from "./cleanup";
+import {
+  CandidateDetail,
+  CandidateListDetail,
+  fileLink,
+  iconFor,
+  riskColor,
+  riskLabel,
+} from "./components/CandidateDetail";
 import { CleanupHistory, CleanupReport } from "./components/CleanupHistory";
 import { ExcludedItems } from "./components/ExcludedItems";
 import { ProjectRootsForm } from "./components/ProjectRootsForm";
 import { isAbortError } from "./lib/async";
-import { formatAge, formatBytes } from "./lib/format";
+import { formatBytes } from "./lib/format";
 import { scanAll } from "./providers";
 import { readExcludedItems, readProjectRoots, recordCleanupRun, writeExcludedItems } from "./storage";
 import type { CleanupCandidate, ExcludedItem, ProtectedItem, RiskLevel, ScanIssue } from "./types";
-
-function iconFor(candidate: CleanupCandidate) {
-  const source = candidate.cleanupPolicy === "command" ? Icon.Terminal : Icon.Folder;
-  const tintColor = candidate.risk === "high" ? Color.Red : candidate.risk === "review" ? Color.Orange : Color.Green;
-  return { source, tintColor };
-}
-
-function candidateMarkdown(candidate: CleanupCandidate): string {
-  const lines = [`# ${candidate.title}`, "", candidate.description];
-  lines.push("", "```text", candidate.subtitle, "```");
-  return lines.join("\n");
-}
-
-function riskLabel(risk: RiskLevel): string {
-  return risk === "safe" ? "Safe" : risk === "review" ? "Review" : "High Risk";
-}
-
-function riskColor(risk: RiskLevel): Color {
-  return risk === "safe" ? Color.Green : risk === "review" ? Color.Orange : Color.Red;
-}
-
-function CandidateDetail({ candidate }: { candidate: CleanupCandidate }) {
-  return (
-    <Detail
-      navigationTitle={candidate.title}
-      markdown={candidateMarkdown(candidate)}
-      metadata={
-        <Detail.Metadata>
-          <Detail.Metadata.Label title="Current Footprint" text={formatBytes(candidate.bytes)} />
-          <Detail.Metadata.TagList title="Risk">
-            <Detail.Metadata.TagList.Item text={riskLabel(candidate.risk)} color={riskColor(candidate.risk)} />
-          </Detail.Metadata.TagList>
-          <Detail.Metadata.Label
-            title="Cleanup Method"
-            text={candidate.cleanupPolicy === "trash" ? "Move to Trash" : "Permanent native command"}
-          />
-          <Detail.Metadata.Label title="Source" text={candidate.providerId} />
-          {candidate.modifiedAt ? (
-            <Detail.Metadata.Label title="Last Modified" text={candidate.modifiedAt.toLocaleString()} />
-          ) : null}
-        </Detail.Metadata>
-      }
-      actions={
-        candidate.path ? (
-          <ActionPanel>
-            <Action.ShowInFinder path={candidate.path} />
-          </ActionPanel>
-        ) : undefined
-      }
-    />
-  );
-}
 
 function CandidateActions({
   candidate,
@@ -166,7 +121,16 @@ function CandidateActions({
           />
         </>
       ) : null}
-      {candidate.path ? <Action.ShowInFinder path={candidate.path} /> : null}
+      {candidate.path ? (
+        <>
+          <Action.ShowInFinder path={candidate.path} />
+          <Action.CopyToClipboard
+            title="Copy Path"
+            content={candidate.path}
+            shortcut={Keyboard.Shortcut.Common.CopyPath}
+          />
+        </>
+      ) : null}
       {!isCleaning ? (
         <Action
           title="Refresh Scan"
@@ -560,7 +524,7 @@ function Dashboard({
           actions={emptyActions}
         />
         {[...sections].map(([section, items]) => (
-          <Grid.Section key={section} title={section} subtitle={`${items.length} item${items.length === 1 ? "" : "s"}`}>
+          <Grid.Section key={section} title={section} subtitle={String(items.length)}>
             {items.map((candidate) => (
               <Grid.Item
                 key={candidate.id}
@@ -621,6 +585,7 @@ function Dashboard({
   return (
     <List
       isLoading={isLoading || isCleaning}
+      isShowingDetail
       navigationTitle={navigationTitle}
       filtering={true}
       searchText={searchText}
@@ -641,7 +606,7 @@ function Dashboard({
     >
       <List.EmptyView icon={Icon.HardDrive} title={emptyTitle} description={emptyDescription} actions={emptyActions} />
       {[...sections].map(([section, items]) => (
-        <List.Section key={section} title={section} subtitle={`${items.length} item${items.length === 1 ? "" : "s"}`}>
+        <List.Section key={section} title={section} subtitle={String(items.length)}>
           {items.map((candidate) => {
             const isSelected = selected.has(candidate.id);
             return (
@@ -649,17 +614,23 @@ function Dashboard({
                 key={candidate.id}
                 id={candidate.id}
                 title={candidate.title}
-                subtitle={formatAge(candidate.modifiedAt)}
                 icon={iconFor(candidate)}
                 keywords={[candidate.providerId, candidate.subtitle, riskLabel(candidate.risk)]}
                 accessories={[
-                  { text: formatBytes(candidate.bytes) },
-                  { tag: { value: riskLabel(candidate.risk), color: riskColor(candidate.risk) } },
                   {
-                    icon: isSelected ? Icon.CheckCircle : Icon.Circle,
+                    icon: candidate.cleanupPolicy === "command" ? Icon.Terminal : Icon.Trash,
+                    tooltip: candidate.cleanupPolicy === "command" ? "Native cleanup command" : "Moves to Trash",
+                  },
+                  {
+                    icon: { source: Icon.CircleFilled, tintColor: riskColor(candidate.risk) },
+                    tooltip: `${riskLabel(candidate.risk)} · ${formatBytes(candidate.bytes)}`,
+                  },
+                  {
+                    icon: isSelected ? { source: Icon.CheckCircle, tintColor: Color.Blue } : Icon.Circle,
                     tooltip: isSelected ? "Selected" : "Not selected",
                   },
                 ]}
+                detail={<CandidateListDetail candidate={candidate} isSelected={isSelected} />}
                 actions={candidateActions(candidate)}
               />
             );
@@ -672,8 +643,18 @@ function Dashboard({
             <List.Item
               key={`${issue.providerId}:${index}`}
               title={issue.providerId}
-              subtitle={issue.message}
+              keywords={[issue.message]}
               icon={{ source: Icon.Warning, tintColor: Color.Orange }}
+              detail={
+                <List.Item.Detail
+                  metadata={
+                    <List.Item.Detail.Metadata>
+                      <List.Item.Detail.Metadata.Label title="Provider" text={issue.providerId} />
+                      <List.Item.Detail.Metadata.Label title="Message" text={issue.message} />
+                    </List.Item.Detail.Metadata>
+                  }
+                />
+              }
               actions={
                 <ActionPanel>
                   {viewAction}
@@ -690,9 +671,31 @@ function Dashboard({
             <List.Item
               key={item.id}
               title={item.title}
-              subtitle={item.reason}
+              keywords={[item.providerId, item.reason]}
               icon={{ source: Icon.Shield, tintColor: Color.Green }}
-              accessories={[{ tag: item.providerId }]}
+              accessories={[{ icon: Icon.Lock, tooltip: "Protected from cleanup" }]}
+              detail={
+                <List.Item.Detail
+                  metadata={
+                    <List.Item.Detail.Metadata>
+                      <List.Item.Detail.Metadata.Label title="Reason" text={item.reason} />
+                      <List.Item.Detail.Metadata.TagList title="Source">
+                        <List.Item.Detail.Metadata.TagList.Item text={item.providerId} color={Color.Green} />
+                      </List.Item.Detail.Metadata.TagList>
+                      {item.path ? (
+                        <>
+                          <List.Item.Detail.Metadata.Separator />
+                          <List.Item.Detail.Metadata.Link
+                            title="Location"
+                            text="Show in Finder"
+                            target={fileLink(item.path)}
+                          />
+                        </>
+                      ) : null}
+                    </List.Item.Detail.Metadata>
+                  }
+                />
+              }
               actions={
                 item.path ? (
                   <ActionPanel>

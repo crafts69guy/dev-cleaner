@@ -1,13 +1,16 @@
+import { ChildProcess } from "node:child_process";
 import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { resolveExecutable, runCommand } from "./command";
 
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
@@ -57,5 +60,26 @@ describe("command helpers", () => {
     controller.abort("user cancelled");
     await expect(running).rejects.toMatchObject({ name: "AbortError" });
     await expect(runCommand({ executable: "/definitely/missing/dev-cleaner", args: [] })).rejects.toThrow("ENOENT");
+  });
+
+  it("rejects with the caller's abort reason when it is an error", async () => {
+    const controller = new AbortController();
+    const reason = new Error("scan replaced");
+    const running = runCommand({ executable: "/bin/sh", args: ["-c", "sleep 1"] }, controller.signal);
+    controller.abort(reason);
+    await expect(running).rejects.toBe(reason);
+  });
+
+  it("escalates to SIGKILL when a timed-out command does not exit", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const kill = vi.spyOn(ChildProcess.prototype, "kill");
+    const running = runCommand({ executable: "/bin/sh", args: ["-c", "sleep 5"], timeoutMs: 10 });
+    const rejection = expect(running).rejects.toThrow("timed out after 10ms");
+    vi.advanceTimersByTime(10);
+    await rejection;
+    expect(kill).toHaveBeenCalledWith("SIGTERM");
+    expect(kill).not.toHaveBeenCalledWith("SIGKILL");
+    vi.advanceTimersByTime(1_000);
+    expect(kill).toHaveBeenLastCalledWith("SIGKILL");
   });
 });

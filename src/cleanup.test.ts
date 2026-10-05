@@ -70,6 +70,10 @@ describe("cleanup orchestration", () => {
         )
       ).message,
     ).toContain("Missing command");
+    await expect(
+      cleanCandidate({ ...base, id: "pathless", path: undefined }, { homeDirectory: home, projectRoots: [] }),
+    ).resolves.toMatchObject({ status: "failed", message: "Missing cleanup path" });
+    expect(trash).not.toHaveBeenCalled();
   });
 
   it("refuses kept items before running a command or moving a path to Trash", async () => {

@@ -98,4 +98,26 @@ describe("AI tools provider", () => {
       ]),
     );
   });
+
+  it("ignores symlinked releases and temporary entries", async () => {
+    const home = await createFixture();
+    const releases = path.join(home, ".codex/packages/standalone/releases");
+    await symlink(path.join(releases, "0.9.0-arm64"), path.join(releases, "latest"));
+    const outside = path.join(home, "outside");
+    await mkdir(outside);
+    const old = new Date("2026-09-01T00:00:00Z");
+    await utimes(outside, old, old);
+    await symlink(outside, path.join(home, ".codex/.tmp/linked"));
+
+    const result = await new AiToolsProvider().scan({
+      homeDirectory: home,
+      projectRoots: [],
+      now: new Date("2026-09-24T00:00:00Z"),
+    });
+
+    expect(result.issues).toEqual([]);
+    expect(result.candidates.some((candidate) => candidate.path?.endsWith("latest"))).toBe(false);
+    expect(result.candidates.some((candidate) => candidate.title === "linked")).toBe(false);
+    expect(result.candidates.some((candidate) => candidate.title === "old")).toBe(true);
+  });
 });

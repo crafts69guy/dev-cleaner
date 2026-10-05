@@ -1,7 +1,35 @@
 import { Action, ActionPanel, Color, Icon, List } from "@raycast/api";
 import { useState } from "react";
 
+import { formatAge } from "../lib/format";
 import type { ExcludedItem } from "../types";
+import { fileLink } from "./CandidateDetail";
+
+function KeptItemDetail({ item }: { item: ExcludedItem }) {
+  const addedAt = new Date(item.addedAt);
+  const keptSince = Number.isNaN(addedAt.getTime())
+    ? "Unknown"
+    : `${addedAt.toLocaleDateString()} · ${formatAge(addedAt)}`;
+  return (
+    <List.Item.Detail
+      metadata={
+        <List.Item.Detail.Metadata>
+          <List.Item.Detail.Metadata.Label title="Details" text={item.subtitle} />
+          <List.Item.Detail.Metadata.TagList title="Source">
+            <List.Item.Detail.Metadata.TagList.Item text={item.providerId} color={Color.Green} />
+          </List.Item.Detail.Metadata.TagList>
+          <List.Item.Detail.Metadata.Label title="Kept Since" text={keptSince} />
+          {item.path ? (
+            <>
+              <List.Item.Detail.Metadata.Separator />
+              <List.Item.Detail.Metadata.Link title="Location" text="Show in Finder" target={fileLink(item.path)} />
+            </>
+          ) : null}
+        </List.Item.Detail.Metadata>
+      }
+    />
+  );
+}
 
 export function ExcludedItems({
   initialItems,
@@ -17,7 +45,7 @@ export function ExcludedItems({
   }
 
   return (
-    <List navigationTitle="Kept Items" searchBarPlaceholder="Search kept items">
+    <List isShowingDetail navigationTitle="Kept Items" searchBarPlaceholder="Search kept items">
       <List.EmptyView
         icon={Icon.Shield}
         title="No Kept Items"
@@ -27,10 +55,10 @@ export function ExcludedItems({
         <List.Item
           key={item.id}
           title={item.title}
-          subtitle={item.subtitle}
           icon={{ source: Icon.Shield, tintColor: Color.Green }}
-          accessories={[{ tag: item.providerId }]}
-          keywords={[item.id, item.providerId]}
+          accessories={[{ icon: Icon.Lock, tooltip: "Kept out of cleanup" }]}
+          keywords={[item.id, item.providerId, item.subtitle]}
+          detail={<KeptItemDetail item={item} />}
           actions={
             <ActionPanel>
               <Action title="Allow Cleanup Again" icon={Icon.Undo} onAction={() => allow(item.id)} />

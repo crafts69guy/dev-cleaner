@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Redesign list views as a split layout with icon-only row accessories and a metadata side panel across candidates, history, reports, and kept items.
 - Add persistent per-item cleanup exclusions with a management view and execution-time protection.
 - Add list/card view switching, clearer risk and selection indicators, and a dedicated candidate detail page.
 - Discover the active pnpm store through the native CLI instead of inferring its format from the pnpm major version.

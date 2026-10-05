@@ -31,6 +31,11 @@ describe("native tools provider", () => {
     await writeFile(path.join(npx, "package.json"), "{}");
     const old = new Date("2026-07-01T00:00:00Z");
     await utimes(npx, old, old);
+    await writeFile(path.join(home, ".npm/_npx/stray-file"), "not a workspace");
+    const recent = path.join(home, ".npm/_npx/recent-workspace");
+    await mkdir(recent);
+    const recentDate = new Date("2026-09-20T00:00:00Z");
+    await utimes(recent, recentDate, recentDate);
     await mkdir(path.join(home, ".npm/_cacache"), { recursive: true });
     await writeFile(path.join(home, ".npm/_cacache/item"), "cache");
     await mkdir(path.join(home, "pnpm-store/v11"), { recursive: true });
@@ -45,6 +50,7 @@ describe("native tools provider", () => {
 
     expect(result.issues).toEqual([]);
     expect(result.candidates).toHaveLength(8);
+    expect(result.candidates.filter((candidate) => candidate.id.startsWith("npm:npx:"))).toHaveLength(1);
     expect(result.candidates.find((candidate) => candidate.id === "npm:npx:old-workspace")).toMatchObject({
       cleanupPolicy: "trash",
       selectedByDefault: true,

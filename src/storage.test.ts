@@ -31,6 +31,11 @@ describe("local storage", () => {
     await expect(readProjectRoots()).resolves.toBeUndefined();
   });
 
+  it("treats missing saved data as unset", async () => {
+    await expect(readProjectRoots()).resolves.toBeUndefined();
+    await expect(readExcludedItems()).resolves.toEqual([]);
+  });
+
   it("removes nested project roots", async () => {
     await expect(normalizeProjectRoots(["/projects/app", "/projects", "/projects/app"])).resolves.toEqual([
       "/projects",
@@ -50,6 +55,8 @@ describe("local storage", () => {
     await expect(readExcludedItems()).resolves.toEqual([item]);
     values.set("excluded-items", JSON.stringify([item, item]));
     await expect(readExcludedItems()).resolves.toEqual([item]);
+    values.set("excluded-items", JSON.stringify([item, null]));
+    await expect(readExcludedItems()).rejects.toThrow("Saved kept items are invalid");
     values.set("excluded-items", JSON.stringify([item, { id: 42 }]));
     await expect(readExcludedItems()).rejects.toThrow("Saved kept items are invalid");
     values.set("excluded-items", "invalid");

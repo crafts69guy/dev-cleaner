@@ -100,7 +100,6 @@ export async function runCommand(
     }, spec.timeoutMs ?? 120_000);
     timeout.unref();
     signal?.addEventListener("abort", onAbort, { once: true });
-    if (signal?.aborted) onAbort();
     child.stdout.on("data", (chunk: Buffer) => {
       stdout = appendBounded(stdout, chunk);
     });

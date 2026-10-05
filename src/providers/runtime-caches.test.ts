@@ -134,4 +134,61 @@ describe("runtime and build cache provider", () => {
       expect.arrayContaining([expect.objectContaining({ title: "Rust stable-aarch64-apple-darwin" })]),
     );
   });
+
+  it("explains newest-version protection and skips empty caches", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "dev-cleaner-runtime-newest-"));
+    temporaryDirectories.push(home);
+    const versionsRoot = path.join(home, ".local/share/fnm/node-versions");
+    for (const version of ["v18.20.0", "v22.16.0", "v24.18.0"]) {
+      const installation = path.join(versionsRoot, version, "installation");
+      await mkdir(installation, { recursive: true });
+      await writeFile(path.join(installation, "node"), version);
+    }
+    await mkdir(path.join(home, ".local/share/fnm/aliases"), { recursive: true });
+    await symlink(
+      path.join(versionsRoot, "v22.16.0/installation"),
+      path.join(home, ".local/share/fnm/aliases/default"),
+    );
+    await mkdir(path.join(home, ".gradle/caches"), { recursive: true });
+
+    const result = await new RuntimeCachesProvider().scan({ homeDirectory: home, projectRoots: [] });
+
+    expect(result.protectedItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: "Node.js v24.18.0", reason: "Newest installed version" }),
+        expect.objectContaining({ title: "Node.js v22.16.0", reason: "Default fnm version" }),
+      ]),
+    );
+    expect(result.candidates.some((candidate) => candidate.providerId === "gradle")).toBe(false);
+  });
+
+  it("protects Rust toolchains pinned by configured projects", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "dev-cleaner-rust-pins-"));
+    temporaryDirectories.push(home);
+    const bin = path.join(home, "bin");
+    await mkdir(bin);
+    await executable(
+      path.join(bin, "rustup"),
+      'if [ "$1" = "override" ]; then exit 0; elif [ "$1" = "show" ]; then echo "stable-aarch64-apple-darwin (default)"; else echo "stable-aarch64-apple-darwin (active, default)"; echo "nightly-aarch64-apple-darwin"; echo "1.80.0-aarch64-apple-darwin"; fi',
+    );
+    const project = path.join(home, "project");
+    await mkdir(project);
+    await writeFile(path.join(project, "rust-toolchain"), "nightly\n");
+
+    const result = await new RuntimeCachesProvider().scan({
+      homeDirectory: home,
+      projectRoots: [project],
+      extraPath: bin,
+    });
+
+    expect(result.protectedItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Rust nightly-aarch64-apple-darwin",
+          reason: expect.stringContaining("Pinned by"),
+        }),
+      ]),
+    );
+    expect(result.candidates.map((candidate) => candidate.title)).toEqual(["Rust 1.80.0-aarch64-apple-darwin"]);
+  });
 });

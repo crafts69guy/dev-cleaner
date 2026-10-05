@@ -21,10 +21,8 @@ export async function directorySize(target: string, signal?: AbortSignal): Promi
 
   let total = 0;
   const pendingDirectories = [target];
-  while (pendingDirectories.length > 0) {
+  for (let current = pendingDirectories.pop(); current !== undefined; current = pendingDirectories.pop()) {
     signal?.throwIfAborted();
-    const current = pendingDirectories.pop();
-    if (!current) continue;
     const directory = await opendir(current);
     const files: string[] = [];
     for await (const entry of directory) {

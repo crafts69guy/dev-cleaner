@@ -52,4 +52,19 @@ describe("runtime pins", () => {
     await writeFile(fileRoot, "file");
     await expect(scanRuntimePins([fileRoot])).rejects.toThrow();
   });
+
+  it("stops descending past the maximum project depth", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "dev-cleaner-pins-depth-"));
+    temporaryDirectories.push(root);
+    const shallow = path.join(root, ...Array.from({ length: 8 }, (_, index) => `level-${index}`));
+    const deep = path.join(shallow, "level-8");
+    await mkdir(deep, { recursive: true });
+    await writeFile(path.join(shallow, ".node-version"), "20.0.0\n");
+    await writeFile(path.join(deep, ".node-version"), "16.0.0\n");
+
+    const pins = await scanRuntimePins([root]);
+
+    expect(matchingPinSources(pins.node, "v20.0.0")).toHaveLength(1);
+    expect(matchingPinSources(pins.node, "v16.0.0")).toEqual([]);
+  });
 });
