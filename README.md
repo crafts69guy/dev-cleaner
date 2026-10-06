@@ -30,6 +30,7 @@ Nothing is removed automatically. You choose every cleanup candidate and confirm
 - Symlinks are not followed while calculating sizes or scanning projects.
 - AI sessions, project history, credentials, configuration, plugins, Docker volumes, and active containers are outside the cleanup scope.
 - fnm, rustup, Cargo, Gradle, Android, and Apple developer cache candidates are never selected by default.
+- **Preselect Items** in the extension's Raycast settings controls what is selected when a scan finishes: items each tool recommends (default: stale npx workspaces, temporary AI tool data, old AI tool versions), all Safe items, Safe and Review items, or nothing. High-risk items are never preselected.
 - Node and Rust versions referenced by configured projects, rustup overrides, defaults, current versions, and rollback versions are protected and shown separately.
 - Kept items are excluded by their exact candidate ID from future scans, selection presets, and cleanup execution until you allow them again.
 

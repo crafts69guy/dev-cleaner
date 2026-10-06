@@ -216,7 +216,9 @@ function Dashboard({
         setProtectedItems(result.protectedItems ?? []);
         latestScan.current = { state: "complete", candidates: result.candidates };
         const keptIds = new Set(excludedItemsRef.current.map((item) => item.id));
-        setSelected((current) => mergeScanSelection(current, result.candidates, keptIds, selectionTouches.current));
+        setSelected((current) =>
+          mergeScanSelection(current, result.candidates, keptIds, selectionTouches.current, preferences.preselectLevel),
+        );
       })
       .catch(async (error) => {
         if (active) latestScan.current = { state: "unavailable" };
@@ -230,7 +232,7 @@ function Dashboard({
       active = false;
       controller.abort();
     };
-  }, [context, scanVersion]);
+  }, [context, scanVersion, preferences.preselectLevel]);
 
   const refresh = useCallback(() => setScanVersion((version) => version + 1), []);
   const cancelScan = useCallback(() => {
