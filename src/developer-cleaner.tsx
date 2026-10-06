@@ -30,7 +30,7 @@ import { CleanupHistory, CleanupReport } from "./components/CleanupHistory";
 import { ExcludedItems } from "./components/ExcludedItems";
 import { ProjectRootsForm } from "./components/ProjectRootsForm";
 import { isAbortError } from "./lib/async";
-import { formatBytes } from "./lib/format";
+import { formatBytes, formatPath } from "./lib/format";
 import { scanAll } from "./providers";
 import { emptySelectionTouches, mergeScanSelection, type SelectionTouches } from "./selection";
 import { readExcludedItems, readProjectRoots, recordCleanupRun, writeExcludedItems } from "./storage";
@@ -615,7 +615,16 @@ function Dashboard({
                 content={providerIcon(item.providerId, { source: Icon.Shield, tintColor: Color.Green })}
                 actions={
                   <ActionPanel>
-                    {item.path ? <Action.ShowInFinder path={item.path} /> : null}
+                    {item.path ? (
+                      <>
+                        <Action.ShowInFinder path={item.path} />
+                        <Action.CopyToClipboard
+                          title="Copy Path"
+                          content={item.path}
+                          shortcut={Keyboard.Shortcut.Common.CopyPath}
+                        />
+                      </>
+                    ) : null}
                     {viewAction}
                     {manageExcludedAction}
                   </ActionPanel>
@@ -735,6 +744,7 @@ function Dashboard({
                       {item.path ? (
                         <>
                           <List.Item.Detail.Metadata.Separator />
+                          <List.Item.Detail.Metadata.Label title="Path" text={formatPath(item.path)} />
                           <List.Item.Detail.Metadata.Link
                             title="Location"
                             text="Show in Finder"
@@ -750,6 +760,11 @@ function Dashboard({
                 item.path ? (
                   <ActionPanel>
                     <Action.ShowInFinder path={item.path} />
+                    <Action.CopyToClipboard
+                      title="Copy Path"
+                      content={item.path}
+                      shortcut={Keyboard.Shortcut.Common.CopyPath}
+                    />
                     {viewAction}
                     {manageExcludedAction}
                   </ActionPanel>
