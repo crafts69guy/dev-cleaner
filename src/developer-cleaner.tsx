@@ -40,6 +40,7 @@ function CandidateActions({
   candidate,
   isSelected,
   selectedCount,
+  knownFootprint,
   toggle,
   keep,
   manageExcludedItems,
@@ -62,6 +63,7 @@ function CandidateActions({
   candidate: CleanupCandidate;
   isSelected: boolean;
   selectedCount: number;
+  knownFootprint: string;
   toggle: () => void;
   keep: () => Promise<void>;
   manageExcludedItems: () => void;
@@ -99,7 +101,7 @@ function CandidateActions({
         <Action title="Cancel Scan" icon={Icon.Stop} onAction={cancelScan} />
       ) : !isCleaning && selectedCount > 0 ? (
         <Action
-          title="Clean Selected Items"
+          title={`Clean ${selectedCount} Selected Item${selectedCount === 1 ? "" : "s"} (${knownFootprint})`}
           icon={Icon.Trash}
           style={Action.Style.Destructive}
           shortcut={{ modifiers: ["cmd", "shift"], key: "backspace" }}
@@ -469,7 +471,6 @@ function Dashboard({
   const knownFootprint = selectedCandidates.some((candidate) => candidate.bytes !== undefined)
     ? formatBytes(selectedBytes)
     : "Size unavailable";
-  const navigationTitle = selected.size ? `${selected.size} selected · ${knownFootprint}` : "Developer Cleaner";
   const availableCandidateCount = candidates.filter((candidate) => !excludedIds.has(candidate.id)).length;
   const emptyTitle = isLoading
     ? "Scanning developer data…"
@@ -520,6 +521,7 @@ function Dashboard({
       candidate={candidate}
       isSelected={selected.has(candidate.id)}
       selectedCount={selected.size}
+      knownFootprint={knownFootprint}
       toggle={() => toggle(candidate.id)}
       keep={() => keepCandidate(candidate)}
       manageExcludedItems={manageExcludedItems}
@@ -545,7 +547,6 @@ function Dashboard({
     return (
       <Grid
         isLoading={isLoading || isCleaning}
-        navigationTitle={navigationTitle}
         columns={5}
         inset={Grid.Inset.Medium}
         filtering={true}
@@ -643,7 +644,6 @@ function Dashboard({
     <List
       isLoading={isLoading || isCleaning}
       isShowingDetail
-      navigationTitle={navigationTitle}
       filtering={true}
       searchText={searchText}
       onSearchTextChange={setSearchText}
@@ -856,6 +856,6 @@ export default function Command() {
         />
       </List>
     );
-  if (!roots) return <ProjectRootsForm onSave={setRoots} />;
+  if (!roots) return <ProjectRootsForm isRoot onSave={setRoots} />;
   return <Dashboard roots={roots} setRoots={setRoots} initialExcludedItems={initialExcludedItems} />;
 }
